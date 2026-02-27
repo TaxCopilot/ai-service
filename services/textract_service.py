@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _TEXTRACT_SERVICE = 'textract'
 _BLOCK_TYPE_LINE = 'LINE'
+_LINE_SEPARATOR = '\n'
 
 _textract_client: botocore.client.BaseClient | None = None
 
@@ -54,18 +55,44 @@ def extract_text_from_s3(s3_bucket: str, s3_key: str) -> str:
         logger.exception('Textract connection error')
         raise RuntimeError(f'Textract connection error: {exc}') from exc
 
-    lines = [
-        b['Text']
+    all_lines = [
+        b
         for b in response.get('Blocks', [])
         if b.get('BlockType') == _BLOCK_TYPE_LINE
     ]
 
-    if not lines:
+    if not all_lines:
         raise RuntimeError(
             f'Textract found no text in s3://{s3_bucket}/{s3_key}. '
             'The file may be blank, password-protected, or corrupt.'
         )
 
+    threshold: float = settings.textract_min_confidence
+    high_conf_lines = [b['Text'] for b in all_lines if b.get('Confidence', 0.0) >= threshold]
+
+    if high_conf_lines:
+        lines = high_conf_lines
+        dropped = len(all_lines) - len(lines)
+        if dropped:
+            logger.debug(
+                'Dropped %d low-confidence lines (threshold=%.0f) from s3://%s/%s',
+                dropped, threshold, s3_bucket, s3_key,
+            )
+    else:
+        # Every line is below the threshold — likely a very poor scan (old fax, low ink).
+        # Use all output rather than returning nothing; the LLM handles noisy text better
+        # than a hard failure.
+        logger.warning(
+            'All %d lines are below confidence threshold %.0f for s3://%s/%s — '
+            'using full Textract output.',
+            len(all_lines), threshold, s3_bucket, s3_key,
+        )
+        lines = [b['Text'] for b in all_lines]
+        dropped = 0
+
     extracted = '\n'.join(lines)
-    logger.info('Textract extracted %d lines from s3://%s/%s', len(lines), s3_bucket, s3_key)
+    logger.info(
+        'Textract extracted %d lines (dropped %d low-confidence) from s3://%s/%s',
+        len(lines), dropped, s3_bucket, s3_key,
+    )
     return extracted
