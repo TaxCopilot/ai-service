@@ -1,0 +1,95 @@
+# Improvements Backlog
+
+Work through these in order — each item is isolated and can be done independently.
+
+---
+
+## Optimizations
+
+### 1. Concurrent Textract + KB calls
+
+**File:** `api/routes.py`
+Run Textract and the KB retrieval in parallel using `asyncio.gather`.
+Currently they run sequentially even though KB retrieval doesn't depend on Textract finishing first for the query (the notice text is the query, but we could pre-fetch while Textract is running using the S3 key as a stub or restructure the flow).
+**Expected gain:** ~30–40% reduction in response time.
+
+### 2. Textract confidence filtering
+
+**File:** `services/textract_service.py`
+Textract returns a `Confidence` score (0–100) per block. Dropping lines below ~80 removes OCR noise before it reaches the LLM and improves summary quality.
+
+### 3. Token budget guard
+
+**File:** `services/draft_service.py`
+Truncate `extracted_text` to a max character count before building the prompt. Prevents context window overflow on unusually long or multi-page notices.
+
+### 4. Response caching
+
+**File:** `api/routes.py`
+Cache the `NoticeResponse` keyed on `document_id` using a simple in-memory dict or ElastiCache. The same notice won't re-trigger Textract + Bedrock on duplicate requests.
+
+---
+
+## Safety Measures
+
+### 5. API key authentication
+
+**File:** `api/routes.py` + `config.py`
+Add an `X-API-Key` header check via a FastAPI dependency. Without this, anyone who knows the URL can call the endpoint.
+
+### 6. Request size limit
+
+**File:** `main.py`
+Lower FastAPI's default 1MB body limit — the request only carries S3 keys, so 10KB is more than enough. Prevents abuse.
+
+### 7. IAM least-privilege reminder
+
+**File:** `README.md` (document only)
+Ensure the attached IAM policy grants only:
+
+- `textract:DetectDocumentText`
+- `s3:GetObject` scoped to the notices bucket
+- `bedrock:Retrieve` scoped to the KB ARN
+- `bedrock:InvokeModel` scoped to the Claude model ARN
+
+### 8. Secrets never in code
+
+**Verify:** All files
+Confirm no AWS credentials, KB IDs, or model IDs are hardcoded anywhere — all must come from `settings`.
+
+---
+
+## Tests
+
+### 9. Unit test — JSON parser
+
+**File:** `tests/test_draft_service.py`
+Test `_parse_json` from `draft_service.py` against:
+
+- Clean JSON
+- JSON wrapped in markdown fences
+- Malformed JSON (should raise `ValueError`)
+
+### 10. Unit test — Textract line filtering
+
+**File:** `tests/test_textract_service.py`
+Mock the boto3 response and verify that WORD blocks are excluded and LINE blocks are joined correctly.
+
+### 11. Integration test — full pipeline (mocked AWS)
+
+**File:** `tests/test_routes.py`
+Use `moto` to mock Textract and patch the KB + Bedrock calls.
+Send a `NoticeRequest` to the FastAPI test client and assert:
+
+- Status 200
+- `NoticeResponse` fields are non-empty
+- `document_id` matches the request
+
+### 12. Integration test — error paths
+
+**File:** `tests/test_routes.py`
+Verify the correct HTTP status codes are returned:
+
+- Textract failure → 422
+- KB failure → 503
+- Bedrock failure → 502
