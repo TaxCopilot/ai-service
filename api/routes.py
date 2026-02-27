@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/v1', tags=['Notice Decoder'])
 
 _PASSAGE_SEPARATOR = '\n\n---\n\n'
+_CACHE_MAX_ENTRIES = 100
+
+_response_cache: dict[str, NoticeResponse] = {}
 
 R = TypeVar('R')
 
@@ -68,6 +71,11 @@ async def _run(fn: Callable[..., R], *args: object) -> R:
 
 @router.post('/decode-notice', response_model=NoticeResponse, summary='Decode a tax notice')
 async def decode_notice(request: NoticeRequest) -> NoticeResponse:
+    cached = _response_cache.get(request.document_id)
+    if cached is not None:
+        logger.info('Cache hit | id=%s', request.document_id)
+        return cached
+
     logger.info(
         'decode-notice | id=%s type=%s has_s3=%s has_text=%s',
         request.document_id,
@@ -119,4 +127,11 @@ async def decode_notice(request: NoticeRequest) -> NoticeResponse:
         ) from exc
 
     logger.info('decode-notice complete | id=%s', request.document_id)
+
+    # Evict oldest entry if cache is full, then store the new result.
+    if len(_response_cache) >= _CACHE_MAX_ENTRIES:
+        oldest_key = next(iter(_response_cache))
+        del _response_cache[oldest_key]
+    _response_cache[request.document_id] = result
+
     return result

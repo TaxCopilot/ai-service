@@ -12,10 +12,7 @@ Work through these in order — each item is isolated and can be done independen
 
 ### ~~3. Token budget guard~~ ✅ Done
 
-### 4. Response caching
-
-**File:** `api/routes.py`
-Cache the `NoticeResponse` keyed on `document_id` using a simple in-memory dict or ElastiCache. The same notice won't re-trigger Textract + Bedrock on duplicate requests.
+### ~~4. Response caching~~ ✅ Done
 
 ---
 
