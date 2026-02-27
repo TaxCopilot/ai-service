@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     bedrock_max_tokens: int = Field(default=2048)
     # Low temp keeps legal drafts factual and consistent
     bedrock_temperature: float = Field(default=0.2)
+    # Characters of notice text sent to the LLM — prevents context overflow on long notices
+    bedrock_max_notice_chars: int = Field(default=15_000)
+
 
     # Bedrock — Knowledge Bases
     bedrock_knowledge_base_id: str = Field(default='PLACEHOLDER_KB_ID')
