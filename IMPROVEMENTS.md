@@ -8,15 +8,9 @@ Work through these in order — each item is isolated and can be done independen
 
 ### ~~1. Concurrent Textract + KB calls~~ ✅ Done
 
-### 2. Textract confidence filtering
+### ~~2. Textract confidence filtering~~ ✅ Done
 
-**File:** `services/textract_service.py`
-Textract returns a `Confidence` score (0–100) per block. Dropping lines below ~80 removes OCR noise before it reaches the LLM and improves summary quality.
-
-### 3. Token budget guard
-
-**File:** `services/draft_service.py`
-Truncate `extracted_text` to a max character count before building the prompt. Prevents context window overflow on unusually long or multi-page notices.
+### ~~3. Token budget guard~~ ✅ Done
 
 ### 4. Response caching
 
