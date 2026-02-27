@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     # AWS
     aws_region: str = Field(default='us-east-1')
 
+    # Shared secret expected in the X-API-Key header from the TypeScript backend.
+    # Leave unset (None) during local development to disable the check.
+    api_key: str | None = Field(default=None)
+
     # Bedrock — LLM
     bedrock_model_id: str = Field(default='anthropic.claude-sonnet-4-6')
     bedrock_max_tokens: int = Field(default=2048)

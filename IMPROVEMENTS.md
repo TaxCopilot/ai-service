@@ -18,10 +18,7 @@ Work through these in order — each item is isolated and can be done independen
 
 ## Safety Measures
 
-### 5. API key authentication
-
-**File:** `api/routes.py` + `config.py`
-Add an `X-API-Key` header check via a FastAPI dependency. Without this, anyone who knows the URL can call the endpoint.
+### ~~5. API key authentication~~ ✅ Done
 
 ### 6. Request size limit
 

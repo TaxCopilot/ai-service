@@ -58,6 +58,22 @@ uvicorn main:app --reload --port 8001
 The service will be available at `http://localhost:8001`.
 Interactive API docs: `http://localhost:8001/docs`
 
+To trigger the AI pipeline locally:
+
+```bash
+curl -X POST http://localhost:8001/api/v1/decode-notice \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-super-secret-key-123" \
+  -d '{
+    "document_id": "test_123",
+    "notice_type": "143(1)",
+    "s3_bucket": "your-bucket-name",
+    "s3_key": "tax_notice_sample.pdf"
+  }'
+```
+
+_(Note: If `API_KEY` is not set in `.env`, the `X-API-Key` header is optional during local development)._
+
 ## API
 
 ### `POST /api/v1/decode-notice`

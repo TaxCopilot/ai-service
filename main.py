@@ -40,6 +40,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if settings.bedrock_knowledge_base_id == _PLACEHOLDER_KB_ID:
         logger.warning('BEDROCK_KNOWLEDGE_BASE_ID is not set — requests will fail until configured.')
 
+    if settings.api_key is None:
+        logger.warning('API_KEY is not set — X-API-Key authentication is DISABLED.')
+
     yield
     logger.info('Shutting down.')
 

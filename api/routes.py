@@ -12,9 +12,10 @@ from collections.abc import Callable
 from functools import partial
 from typing import TypeVar
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, model_validator
 
+from api.deps import require_api_key
 from services.draft_service import NoticeResponse, generate_notice_reply
 from services.kb_service import retrieve_relevant_law
 from services.textract_service import extract_text_from_s3
@@ -69,7 +70,12 @@ async def _run(fn: Callable[..., R], *args: object) -> R:
     return await loop.run_in_executor(None, partial(fn, *args))
 
 
-@router.post('/decode-notice', response_model=NoticeResponse, summary='Decode a tax notice')
+@router.post(
+    '/decode-notice',
+    response_model=NoticeResponse,
+    summary='Decode a tax notice',
+    dependencies=[Depends(require_api_key)],
+)
 async def decode_notice(request: NoticeRequest) -> NoticeResponse:
     cached = _response_cache.get(request.document_id)
     if cached is not None:
