@@ -6,12 +6,7 @@ Work through these in order — each item is isolated and can be done independen
 
 ## Optimizations
 
-### 1. Concurrent Textract + KB calls
-
-**File:** `api/routes.py`
-Run Textract and the KB retrieval in parallel using `asyncio.gather`.
-Currently they run sequentially even though KB retrieval doesn't depend on Textract finishing first for the query (the notice text is the query, but we could pre-fetch while Textract is running using the S3 key as a stub or restructure the flow).
-**Expected gain:** ~30–40% reduction in response time.
+### ~~1. Concurrent Textract + KB calls~~ ✅ Done
 
 ### 2. Textract confidence filtering
 
