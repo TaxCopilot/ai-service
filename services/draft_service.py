@@ -23,6 +23,7 @@ _LAW_FALLBACK = (
 )
 _JSON_FENCE_PATTERN = re.compile(r'```(?:json)?')
 _PASSAGE_SEPARATOR = '\n\n---\n\n'
+_TRUNCATION_NOTICE = '\n\n[Notice text truncated to stay within the model context limit.]'
 
 _SYSTEM_PROMPT = """\
 You are an Indian Chartered Accountant with 20 years of direct tax litigation experience.
@@ -82,6 +83,17 @@ def _parse_json(raw: str) -> dict[str, str]:
         raise ValueError(f'Malformed JSON in LLM response: {exc}') from exc
 
 
+def _truncate_notice(text: str, max_chars: int) -> str:
+    """Cap notice text to max_chars to avoid exceeding the model's context window."""
+    if len(text) <= max_chars:
+        return text
+    logger.warning(
+        'Notice text truncated from %d to %d characters to fit context window.',
+        len(text), max_chars,
+    )
+    return text[:max_chars] + _TRUNCATION_NOTICE
+
+
 def generate_notice_reply(
     document_id: str,
     extracted_text: str,
@@ -94,6 +106,7 @@ def generate_notice_reply(
     Raises RuntimeError if the model call fails or the response cannot be parsed.
     """
     llm = _build_llm()
+    extracted_text = _truncate_notice(extracted_text, settings.bedrock_max_notice_chars)
     law_context = retrieved_law.strip() or _LAW_FALLBACK
 
     messages: list[BaseMessage] = [
