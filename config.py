@@ -26,6 +26,8 @@ class Settings(BaseSettings):
 
     # Textract
     textract_max_pages: int = Field(default=15)  # cost guard
+    textract_min_confidence: float = Field(default=80.0)  # drop noisy OCR lines below this
+
 
     # Server
     api_host: str = Field(default='0.0.0.0')
