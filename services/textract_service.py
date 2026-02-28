@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 
 _TEXTRACT_SERVICE = 'textract'
 _BLOCK_TYPE_LINE = 'LINE'
-_LINE_SEPARATOR = '\n'
 
 _textract_client: botocore.client.BaseClient | None = None
 
