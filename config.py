@@ -27,9 +27,12 @@ class Settings(BaseSettings):
     bedrock_max_notice_chars: int = Field(default=15_000)
 
 
-    # Bedrock — Knowledge Bases
+    # Bedrock — Knowledge Bases (Legacy)
     bedrock_knowledge_base_id: str = Field(default='PLACEHOLDER_KB_ID')
     bedrock_retrieval_results: int = Field(default=5)
+
+    # PostgreSQL / pgvector Database
+    database_url: str = Field(default='postgresql://postgres:postgres@localhost:5432/postgres')
 
     # Textract
     textract_max_pages: int = Field(default=15)  # cost guard

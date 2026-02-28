@@ -7,6 +7,12 @@ pydantic-settings==2.7.0
 langchain==0.3.14
 langchain-aws==0.2.9
 langchain-community==0.3.14
+langchain-postgres==0.0.12
+
+# Vector DB & PDF Parsing
+psycopg[binary]==3.1.18
+pgvector
+pymupdf==1.23.26
 
 # AWS SDK — used by Textract, Bedrock Knowledge Bases, and LangChain-AWS
 boto3==1.37.5
