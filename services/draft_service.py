@@ -1,15 +1,14 @@
 import logging
 import re
 
-from langchain_aws import ChatBedrock
+from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
 
-from services.config import settings
+from config import settings
 from services.kb_service import retrieve_relevant_law
 
 logger = logging.getLogger(__name__)
 
-_BEDROCK_LLM_MODEL = 'us.anthropic.claude-3-5-sonnet-20240620-v1:0'
 
 class NoticeResponse(BaseModel):
     '''Response schema for the legal draft.'''
@@ -73,14 +72,14 @@ def generate_notice_reply(query: str) -> NoticeResponse:
             is_grounded=False
         )
 
-    llm = ChatBedrock(
-        model_id=_BEDROCK_LLM_MODEL,
-        model_kwargs={
-            'max_tokens': settings.bedrock_max_tokens,
-            'temperature': 0.1,
-            'top_p': 0.9,
-        }
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        api_key=settings.gemini_api_key,
+        max_output_tokens=settings.llm_max_tokens,
+        temperature=settings.llm_temperature
     )
+
+    print(f"DEBUG: Gemini Request -> Model: gemini-2.5-flash")
 
     prompt = f'Retrieved Legal Context:\n\n{law_context}\n\nUser Query: {query}'
     

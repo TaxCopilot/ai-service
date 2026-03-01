@@ -4,7 +4,7 @@ import os
 from langchain_aws import BedrockEmbeddings
 from langchain_postgres.vectorstores import PGVector
 
-from services.config import settings
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,12 @@ def retrieve_relevant_law(query: str, top_k: int = 5) -> str:
     '''
     print(f'🔍 GST RAG: Searching legal corpus for: {query[:50]}...')
 
-    embeddings = BedrockEmbeddings(model_id='amazon.titan-embed-text-v2:0')
+    embeddings = BedrockEmbeddings(
+        model_id='amazon.titan-embed-text-v2:0',
+        region_name=settings.aws_region,
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+    )
 
     db_url = settings.database_url
     if db_url.startswith('postgresql://'):
