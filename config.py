@@ -36,7 +36,10 @@ class Settings(BaseSettings):
 
     # Textract
     textract_max_pages: int = Field(default=15)  # cost guard
-    textract_min_confidence: float = Field(default=80.0)  # drop noisy OCR lines below this
+    # Scanned Indian tax notices (fax, photocopy) typically score 60-75%
+    # in Textract; 80 dropped legitimate text. 50 keeps readable content
+    # while still filtering pure noise.
+    textract_min_confidence: float = Field(default=50.0)
 
 
     # Server
