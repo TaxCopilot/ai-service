@@ -73,13 +73,13 @@ def generate_notice_reply(query: str) -> NoticeResponse:
         )
 
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model="gemini-2.5-pro",
         api_key=settings.gemini_api_key,
         max_output_tokens=settings.llm_max_tokens,
         temperature=settings.llm_temperature
     )
 
-    print(f"DEBUG: Gemini Request -> Model: gemini-2.5-flash")
+    print(f"DEBUG: Gemini Request -> Model: gemini-2.5-pro")
 
     prompt = f'Retrieved Legal Context:\n\n{law_context}\n\nUser Query: {query}'
     

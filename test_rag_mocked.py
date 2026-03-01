@@ -11,7 +11,7 @@ from services.draft_service import generate_notice_reply
 class TestRAGGrounding(unittest.TestCase):
     def setUp(self):
         print(f"\n⚙️  CONFIG CHECK:")
-        print(f"   Model:  Gemini 2.5 Flash")
+        print(f"   Model:  Gemini 2.5 Pro")
 
     @patch('services.draft_service.retrieve_relevant_law')
     def test_grounded_drafting(self, mock_retrieve):
