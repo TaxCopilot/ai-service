@@ -31,9 +31,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger.info(
-        'Starting up | region=%s model=%s db=%s',
+        'Starting up | region=%s model=gemini db=%s',
         settings.aws_region,
-        settings.bedrock_model_id,
         settings.database_url.split('@')[-1] if '@' in settings.database_url else 'local',
     )
 
@@ -65,6 +64,17 @@ app.include_router(router)
 @app.get('/health', tags=['ops'])
 def health() -> dict[str, str]:
     return {'status': 'ok', 'service': 'taxcopilot-ai', 'version': '1.0.0'}
+
+
+from pydantic import BaseModel
+from services.draft_service import NoticeResponse, generate_notice_reply
+
+class DraftRequest(BaseModel):
+    query: str
+
+@app.post('/api/draft', response_model=NoticeResponse, tags=['Drafting'])
+def create_draft(request: DraftRequest):
+    return generate_notice_reply(request.query)
 
 
 if __name__ == '__main__':

@@ -94,7 +94,20 @@ def ingest_to_pgvector():
     '''Reads PDFs from data/, chunks them, embeds them, and saves to pgvector.'''
     print(f'🚀 Starting ingestion process...')
 
-    embeddings = BedrockEmbeddings(model_id=BEDROCK_MODEL_ID)
+    import boto3
+    import time
+    
+    bedrock_client = boto3.client(
+        "bedrock-runtime",
+        region_name=os.getenv('AWS_REGION'),
+        aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+        aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+    )
+
+    embeddings = BedrockEmbeddings(
+        client=bedrock_client,
+        model_id=BEDROCK_MODEL_ID
+    )
 
     collection_name = 'gst_laws'
     
@@ -132,18 +145,22 @@ def ingest_to_pgvector():
     # 4. Ingest into database in small batches to avoid Bedrock rate limits.
     # Each batch calls the embedding API for every chunk, so large batches
     # cause silent throttling and make the script appear frozen.
-    total = len(all_chunks)
-    print(f'💾 Upserting {total} total chunks in batches of {BATCH_SIZE}...')
+    # We must use a much smaller batch size because Bedrock Titan has tight payload limits.
+    # 50 chunks at once causes a massive payload that gets rate-limited/rejected indefinitely.
+    SAFE_BATCH_SIZE = 5 
+    print(f'💾 Upserting {total} total chunks in safe batches of {SAFE_BATCH_SIZE}...')
 
     texts = [chunk['text'] for chunk in all_chunks]
     metadatas = [chunk['metadata'] for chunk in all_chunks]
 
-    for start in range(0, total, BATCH_SIZE):
-        end = min(start + BATCH_SIZE, total)
+    for start in range(0, total, SAFE_BATCH_SIZE):
+        end = min(start + SAFE_BATCH_SIZE, total)
         batch_texts = texts[start:end]
         batch_meta = metadatas[start:end]
+        
         vector_store.add_texts(texts=batch_texts, metadatas=batch_meta)
-        print(f'  ✅ Batch {start // BATCH_SIZE + 1}/{(total + BATCH_SIZE - 1) // BATCH_SIZE} done ({end}/{total} chunks)')
+        print(f'  ✅ Batch {start // SAFE_BATCH_SIZE + 1}/{(total + SAFE_BATCH_SIZE - 1) // SAFE_BATCH_SIZE} done ({end}/{total} chunks)')
+        time.sleep(2) # Prevent Bedrock rate limits
 
     print('🎉 Ingestion complete!')
 
