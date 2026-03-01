@@ -61,7 +61,24 @@ class NoticeResponse(BaseModel):
 
 
 def _build_llm() -> ChatBedrock:
+    import boto3
+    import botocore.config
+
+    boto_config = botocore.config.Config(
+        region_name=settings.aws_region,
+        retries={'max_attempts': 3, 'mode': 'standard'}
+    )
+    
+    bedrock_client = boto3.client(
+        service_name='bedrock-runtime',
+        region_name=settings.aws_region,
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+        config=boto_config,
+    )
+
     return ChatBedrock(
+        client=bedrock_client,
         model_id=settings.bedrock_model_id,
         region_name=settings.aws_region,
         model_kwargs={

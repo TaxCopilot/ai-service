@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     )
 
     # AWS
-    aws_region: str = Field(default='us-east-1', alias='AWS_DEFAULT_REGION')
+    aws_region: str = Field(default='ap-south-1', alias='AWS_DEFAULT_REGION')
     aws_access_key_id: str | None = Field(default=None)
     aws_secret_access_key: str | None = Field(default=None)
 
