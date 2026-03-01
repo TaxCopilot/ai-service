@@ -20,13 +20,12 @@ class Settings(BaseSettings):
     # Leave unset (None) during local development to disable the check.
     api_key: str | None = Field(default=None)
 
-    # Bedrock — LLM
-    bedrock_model_id: str = Field(default='anthropic.claude-sonnet-4-6')
-    bedrock_max_tokens: int = Field(default=2048)
+    # Gemini — LLM
+    gemini_api_key: str = Field(default='...', alias='GEMINI_API_KEY')
+    llm_max_tokens: int = Field(default=2048)
     # Low temp keeps legal drafts factual and consistent
-    bedrock_temperature: float = Field(default=0.2)
-    # Characters of notice text sent to the LLM — prevents context overflow on long notices
-    bedrock_max_notice_chars: int = Field(default=15_000)
+    llm_temperature: float = Field(default=0.2)
+    min_notice_chars: int = Field(default=15_000)
 
 
     # Bedrock — Knowledge Bases (Legacy)
