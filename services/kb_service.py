@@ -1,80 +1,102 @@
 """
-Retrieves relevant tax law passages from a Bedrock Knowledge Base.
+Retrieves relevant tax law passages from the pgvector database.
 
-Upload law PDFs to S3 and sync the KB from the AWS Console — no ingestion
-script needed. AWS handles chunking, embedding, and vector indexing.
+Tax law PDFs are pre-chunked and embedded via scripts/ingest_to_pgvector.py.
+This module runs a cosine-similarity search against those embeddings to
+find the most relevant passages for a given query.
 
-Required IAM: bedrock:Retrieve on the knowledge base resource.
+Required env: DATABASE_URL, AWS credentials for Bedrock Titan embeddings.
 """
 
 import logging
 
-import boto3
-import botocore.client
-from botocore.exceptions import BotoCoreError, ClientError
+from langchain_aws import BedrockEmbeddings
+from langchain_postgres.vectorstores import PGVector
 
 from config import settings
 
 logger = logging.getLogger(__name__)
 
-_BEDROCK_AGENT_SERVICE = 'bedrock-agent-runtime'
+_COLLECTION_NAME = 'tax_laws'
+_EMBEDDING_MODEL_ID = 'amazon.titan-embed-text-v2:0'
 
-_kb_client: botocore.client.BaseClient | None = None
+_vector_store: PGVector | None = None
 
 
-def _get_client() -> botocore.client.BaseClient:
-    global _kb_client
-    if _kb_client is None:
-        _kb_client = boto3.client(_BEDROCK_AGENT_SERVICE, region_name=settings.aws_region)
-    return _kb_client
+def _get_vector_store() -> PGVector:
+    """Lazily initialise the PGVector connection on first call."""
+    global _vector_store
+    if _vector_store is None:
+        db_url = settings.database_url
+        if db_url.startswith('postgresql://'):
+            db_url = db_url.replace('postgresql://', 'postgresql+psycopg://')
+
+        import boto3
+        import botocore.config
+
+        boto_config = botocore.config.Config(
+            region_name=settings.aws_region,
+            retries={'max_attempts': 3, 'mode': 'standard'}
+        )
+        
+        bedrock_client = boto3.client(
+            service_name='bedrock-runtime',
+            region_name=settings.aws_region,
+            aws_access_key_id=settings.aws_access_key_id,
+            aws_secret_access_key=settings.aws_secret_access_key,
+            config=boto_config,
+        )
+
+        embeddings = BedrockEmbeddings(
+            client=bedrock_client,
+            model_id=_EMBEDDING_MODEL_ID,
+            region_name=settings.aws_region,
+        )
+
+        _vector_store = PGVector(
+            embeddings=embeddings,
+            collection_name=_COLLECTION_NAME,
+            connection=db_url,
+            use_jsonb=True,
+        )
+        logger.info(
+            'pgvector store initialised | collection=%s',
+            _COLLECTION_NAME,
+        )
+    return _vector_store
 
 
 def retrieve_relevant_law(query: str) -> tuple[list[str], list[str]]:
     """
-    Run a semantic search against the tax law Knowledge Base.
+    Run a semantic search against the tax law vector database.
 
     Returns (passages, sources) — both lists are ordered by relevance score
-    and will be empty if the KB has no matching content.
+    and will be empty if the database has no matching content.
     """
-    client = _get_client()
+    top_k = settings.bedrock_retrieval_results
 
     logger.info(
-        'KB query | kb=%s top_k=%d',
-        settings.bedrock_knowledge_base_id,
-        settings.bedrock_retrieval_results,
+        'pgvector query | collection=%s top_k=%d',
+        _COLLECTION_NAME,
+        top_k,
     )
 
     try:
-        response = client.retrieve(
-            knowledgeBaseId=settings.bedrock_knowledge_base_id,
-            retrievalQuery={'text': query},
-            retrievalConfiguration={
-                'vectorSearchConfiguration': {
-                    'numberOfResults': settings.bedrock_retrieval_results,
-                }
-            },
-        )
-    except ClientError as exc:
-        code = exc.response['Error']['Code']
-        logger.exception('Bedrock KB error: %s', code)
+        store = _get_vector_store()
+        results = store.similarity_search(query, k=top_k)
+    except Exception as exc:
+        logger.exception('pgvector retrieval failed')
         raise RuntimeError(
-            f"Knowledge Base retrieval failed ({code}). "
-            f'Check BEDROCK_KNOWLEDGE_BASE_ID and IAM permissions.'
+            f'Knowledge Base retrieval failed: {exc}. '
+            'Check DATABASE_URL and AWS credentials.'
         ) from exc
-    except BotoCoreError as exc:
-        logger.exception('Bedrock KB connection error')
-        raise RuntimeError(f'Knowledge Base connection error: {exc}') from exc
 
-    results: list[dict] = response.get('retrievalResults', [])
     if not results:
-        logger.warning('KB returned no results for query: %.100s', query)
+        logger.warning('pgvector returned no results for query: %.100s', query)
         return [], []
 
-    passages = [r['content']['text'] for r in results]
-    sources = [
-        r.get('location', {}).get('s3Location', {}).get('uri', 'unknown')
-        for r in results
-    ]
+    passages = [doc.page_content for doc in results]
+    sources = [doc.metadata.get('source', 'unknown') for doc in results]
 
-    logger.info('KB returned %d passages', len(passages))
+    logger.info('pgvector returned %d passages', len(passages))
     return passages, sources

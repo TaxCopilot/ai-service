@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     )
 
     # AWS
-    aws_region: str = Field(default='us-east-1')
+    aws_region: str = Field(default='us-east-1', alias='AWS_DEFAULT_REGION')
+    aws_access_key_id: str | None = Field(default=None)
+    aws_secret_access_key: str | None = Field(default=None)
 
     # Shared secret expected in the X-API-Key header from the TypeScript backend.
     # Leave unset (None) during local development to disable the check.

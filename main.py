@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.routes import router
 from config import settings
 
-_PLACEHOLDER_KB_ID = 'PLACEHOLDER_KB_ID'
+
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -31,14 +31,11 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger.info(
-        'Starting up | region=%s model=%s kb=%s',
+        'Starting up | region=%s model=%s db=%s',
         settings.aws_region,
         settings.bedrock_model_id,
-        settings.bedrock_knowledge_base_id,
+        settings.database_url.split('@')[-1] if '@' in settings.database_url else 'local',
     )
-
-    if settings.bedrock_knowledge_base_id == _PLACEHOLDER_KB_ID:
-        logger.warning('BEDROCK_KNOWLEDGE_BASE_ID is not set — requests will fail until configured.')
 
     if settings.api_key is None:
         logger.warning('API_KEY is not set — X-API-Key authentication is DISABLED.')
