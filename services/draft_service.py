@@ -1,161 +1,130 @@
-"""
-Calls Amazon Bedrock to summarise a tax notice and draft a CA-grade reply.
-
-The LLM is instructed to work only from the law excerpts provided — no
-hallucinated citations. Output is expected as a raw JSON object.
-"""
-
-import json
 import logging
 import re
 
 from langchain_aws import ChatBedrock
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from config import settings
+from services.config import settings
+from services.kb_service import retrieve_relevant_law
 
 logger = logging.getLogger(__name__)
 
-_LAW_FALLBACK = (
-    'No specific law excerpts retrieved. '
-    'Apply general knowledge of the Income Tax Act 1961.'
-)
-_JSON_FENCE_PATTERN = re.compile(r'```(?:json)?')
-_PASSAGE_SEPARATOR = '\n\n---\n\n'
-_TRUNCATION_NOTICE = '\n\n[Notice text truncated to stay within the model context limit.]'
-
-_SYSTEM_PROMPT = """\
-You are an Indian Chartered Accountant with 20 years of direct tax litigation experience.
-
-Analyse the income tax notice provided and produce a structured response.
-
-Rules:
-- Work strictly from the provided law excerpts. Do not cite provisions not present in them.
-- Use formal language appropriate for correspondence with the Income Tax Department.
-- Reply with a raw JSON object containing exactly two keys:
-  {
-    "generated_summary": "<plain-English explanation: what the notice demands, why it was issued, deadlines>",
-    "draft_response": "<complete formal reply letter to the Assessing Officer>"
-  }
-
-No markdown fences. No preamble. JSON only.\
-"""
-
-_USER_PROMPT = """\
---- NOTICE ---
-{notice_text}
-
---- RELEVANT LAW ---
-{law_excerpts}
-
-Produce the JSON response.\
-"""
-
+_BEDROCK_LLM_MODEL = 'us.anthropic.claude-3-5-sonnet-20240620-v1:0'
 
 class NoticeResponse(BaseModel):
-    document_id: str
-    generated_summary: str
-    draft_response: str
-    sources_cited: list[str]
+    '''Response schema for the legal draft.'''
+    draft_reply: str = Field(description='The generated reply to the GST tax notice.')
+    citations: list[str] = Field(description='List of legal sections or rules cited.')
+    is_grounded: bool = Field(description='Whether the response is fully grounded in retrieved law.')
 
+# Hardened System Prompt
+_SYSTEM_PROMPT = '''
+You are a "Grounded Legal Draft Assistant" providing precise replies to GST tax notices.
+Your primary directive is accuracy and grounding in the provided legal corpus.
 
-def _build_llm() -> ChatBedrock:
-    import boto3
-    import botocore.config
+STRICT GROUNDING RULES:
+1. ONLY use the legal context provided below.
+2. If the context does not contain enough information to answer the query, respond exactly: 
+   "Insufficient information in current legal corpus."
+3. Do NOT invent or hallucinate section numbers or legal rules.
+4. ONLY cite section or rule numbers that explicitly appear in the retrieved context.
+5. Do NOT rely on general legal knowledge or external facts.
 
-    boto_config = botocore.config.Config(
-        region_name=settings.aws_region,
-        retries={'max_attempts': 3, 'mode': 'standard'}
-    )
+OUTPUT FORMAT:
+- Your response must be professional and follow standard legal drafting norms.
+- Use the following JSON-like structure (which will be parsed into a Pydantic model):
+  {
+    "draft_reply": "Detailed legal response...",
+    "citations": ["Section 73", "Rule 142"],
+    "is_grounded": true
+  }
+'''
+
+def _extract_and_validate_citations(llm_output: str, retrieved_law: str) -> bool:
+    '''
+    Extracts citations from LLM output and validates them against the retrieved law text.
+    Returns True if all citations are found in the retrieved context.
+    '''
+    # Extract Section/Rule numbers like "Section 73" or "Rule 142"
+    citations = re.findall(r'(?:Section|Rule)\s+\d+[A-Z]*', llm_output, flags=re.IGNORECASE)
     
-    bedrock_client = boto3.client(
-        service_name='bedrock-runtime',
-        region_name=settings.aws_region,
-        aws_access_key_id=settings.aws_access_key_id,
-        aws_secret_access_key=settings.aws_secret_access_key,
-        config=boto_config,
-    )
+    if not citations:
+         return True
+         
+    for cite in citations:
+        # Use simple lowercase containment check for robustness
+        clean_cite = cite.lower().strip()
+        if clean_cite not in retrieved_law.lower():
+            logger.warning(f'🚨 HALLUCINATION DETECTED: {cite} not in retrieved context.')
+            return False
+            
+    return True
 
-    return ChatBedrock(
-        client=bedrock_client,
-        model_id=settings.bedrock_model_id,
-        region_name=settings.aws_region,
+def generate_notice_reply(query: str) -> NoticeResponse:
+    '''
+    Orchestrates the RAG pipeline to generate a grounded legal reply.
+    '''
+    law_context = retrieve_relevant_law(query)
+    
+    if not law_context:
+        return NoticeResponse(
+            draft_reply='Insufficient information in current legal corpus.',
+            citations=[],
+            is_grounded=False
+        )
+
+    llm = ChatBedrock(
+        model_id=_BEDROCK_LLM_MODEL,
         model_kwargs={
             'max_tokens': settings.bedrock_max_tokens,
-            'temperature': settings.bedrock_temperature,
-        },
+            'temperature': 0.1,
+            'top_p': 0.9,
+        }
     )
 
+    prompt = f'Retrieved Legal Context:\n\n{law_context}\n\nUser Query: {query}'
+    
+    response = llm.invoke([('system', _SYSTEM_PROMPT), ('user', prompt)])
+    content = response.content
+    
+    is_valid = _extract_and_validate_citations(content, law_context)
+    
+    # If hallucination detected, attempt ONE surgical regeneration
+    if not is_valid:
+        print('♻️ Hallucination detected. Retrying with strict warnings...')
+        warning_msg = (
+            'WARNING: Your previous draft cited sections/rules NOT present in the context. '
+            'REGENERATE the draft and ONLY cite the legal text provided. '
+            'Do NOT fabricate section numbers.'
+        )
+        retry_prompt = f'{prompt}\n\n{warning_msg}'
+        response = llm.invoke([('system', _SYSTEM_PROMPT), ('user', retry_prompt)])
+        content = response.content
+        
+        is_valid = _extract_and_validate_citations(content, law_context)
 
-def _parse_json(raw: str) -> dict[str, str]:
-    """Extract the JSON object from the LLM response, stripping any markdown fences."""
-    cleaned = _JSON_FENCE_PATTERN.sub('', raw).strip().rstrip('`').strip()
-    match = re.search(r'\{.*\}', cleaned, re.DOTALL)
-    if not match:
-        raise ValueError(f"No JSON found in LLM response: {raw[:300]!r}")
-    try:
-        return json.loads(match.group())  # type: ignore[no-any-return]
-    except json.JSONDecodeError as exc:
-        raise ValueError(f'Malformed JSON in LLM response: {exc}') from exc
+    if not is_valid:
+         return NoticeResponse(
+            draft_reply='The generated draft contained invalid citations and was discarded for safety.',
+            citations=[],
+            is_grounded=False
+         )
 
-
-def _truncate_notice(text: str, max_chars: int) -> str:
-    """Cap notice text to max_chars to avoid exceeding the model's context window."""
-    if len(text) <= max_chars:
-        return text
-    logger.warning(
-        'Notice text truncated from %d to %d characters to fit context window.',
-        len(text), max_chars,
-    )
-    return text[:max_chars] + _TRUNCATION_NOTICE
-
-
-def generate_notice_reply(
-    document_id: str,
-    extracted_text: str,
-    retrieved_law: str,
-    sources_cited: list[str],
-) -> NoticeResponse:
-    """
-    Invoke Bedrock and parse the structured reply.
-
-    Raises RuntimeError if the model call fails or the response cannot be parsed.
-    """
-    llm = _build_llm()
-    extracted_text = _truncate_notice(extracted_text, settings.bedrock_max_notice_chars)
-    law_context = retrieved_law.strip() or _LAW_FALLBACK
-
-    messages: list[BaseMessage] = [
-        SystemMessage(content=_SYSTEM_PROMPT),
-        HumanMessage(
-            content=_USER_PROMPT.format(
-                notice_text=extracted_text,
-                law_excerpts=law_context,
+    json_match = re.search(r'\{.*\}', content, re.DOTALL)
+    if json_match:
+        try:
+            import json
+            data = json.loads(json_match.group(0))
+            return NoticeResponse(
+                draft_reply=data.get('draft_reply', 'Error parsing draft.'),
+                citations=data.get('citations', []),
+                is_grounded=True
             )
-        ),
-    ]
-
-    logger.info('Invoking Bedrock | model=%s', settings.bedrock_model_id)
-
-    try:
-        response = llm.invoke(messages)
-    except Exception as exc:
-        logger.exception('Bedrock invocation failed')
-        raise RuntimeError(f'Bedrock error: {exc}') from exc
-
-    raw: str = response.content  # type: ignore[assignment]
-    logger.debug('Bedrock response (first 500): %.500s', raw)
-
-    try:
-        parsed = _parse_json(raw)
-    except ValueError as exc:
-        logger.exception('Failed to parse Bedrock response')
-        raise RuntimeError(str(exc)) from exc
+        except Exception:
+            pass
 
     return NoticeResponse(
-        document_id=document_id,
-        generated_summary=parsed.get('generated_summary', ''),
-        draft_response=parsed.get('draft_response', ''),
-        sources_cited=sources_cited,
+        draft_reply=content,
+        citations=re.findall(r'(?:Section|Rule)\s+\d+[A-Z]*', content),
+        is_grounded=is_valid
     )
