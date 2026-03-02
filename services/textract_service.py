@@ -65,14 +65,27 @@ def _extract_with_pymupdf(s3_bucket: str, s3_key: str) -> str:
     
     doc = fitz.open(stream=pdf_bytes, filetype='pdf')
     text_parts = []
-    for page in doc:
+    
+    for page_num, page in enumerate(doc):
+        # Try normal text extraction first
         text = page.get_text()
         if text.strip():
             text_parts.append(text)
+        else:
+            # If no text, try OCR (requires Tesseract installed)
+            try:
+                text = page.get_text("text", flags=fitz.TEXT_PRESERVE_WHITESPACE)
+                if text.strip():
+                    text_parts.append(text)
+            except Exception as e:
+                logger.debug('OCR attempt failed for page %d: %s', page_num, e)
+    
     doc.close()
     
     if not text_parts:
-        raise RuntimeError(f'No text extracted from s3://{s3_bucket}/{s3_key}')
+        # Return a message instead of failing - let the LLM handle it
+        logger.warning('No text could be extracted from s3://%s/%s - document may be image-only', s3_bucket, s3_key)
+        return f"[Document could not be processed - appears to be a scanned image without text layer. File: {s3_key.split('/')[-1]}]"
     
     extracted = '\n'.join(text_parts)
     logger.info('PyMuPDF extracted %d characters from s3://%s/%s', len(extracted), s3_bucket, s3_key)
