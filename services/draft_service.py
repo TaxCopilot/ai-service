@@ -53,7 +53,15 @@ def _extract_and_validate_citations(llm_output: str, retrieved_law: str) -> bool
     for cite in citations:
         # Use simple lowercase containment check for robustness
         clean_cite = cite.lower().strip()
-        if clean_cite not in retrieved_law.lower():
+        
+        # Look for the bare number since the raw text might just say "73. (1)..."
+        num_match = re.search(r'\d+[A-Z]*', clean_cite)
+        if num_match:
+            number = num_match.group(0)
+            if number not in retrieved_law.lower():
+                logger.warning(f'🚨 HALLUCINATION DETECTED: {cite} (number {number}) not in retrieved context.')
+                return False
+        elif clean_cite not in retrieved_law.lower():
             logger.warning(f'🚨 HALLUCINATION DETECTED: {cite} not in retrieved context.')
             return False
             
