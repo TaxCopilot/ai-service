@@ -67,23 +67,10 @@ def chunk_text(document: dict) -> list[dict]:
     
     result = []
     for chunk in chunks:
-        section_number = None
-        section_title = None
-        
-        # Regex to detect "Section 73. Title" or "Rule 142 Title"
-        match = re.search(r'^(?:Section|Rule)\s+(\d+[A-Z]*)[.\-\s]*([^\n]*)', chunk.strip(), flags=re.IGNORECASE)
-        if match:
-            section_number = match.group(1).strip()
-            title = match.group(2).strip()
-            if title:
-                section_title = title
-
         meta = {
             'source': document['source'],
             'document_type': document.get('document_type', 'unknown'),
-            'tax_type': document.get('tax_type', 'GST'),
-            'section_number': section_number,
-            'section_title': section_title
+            'tax_type': document.get('tax_type', 'GST')
         }
         result.append({'text': chunk, 'metadata': meta})
         
@@ -148,6 +135,7 @@ def ingest_to_pgvector():
     # We must use a much smaller batch size because Bedrock Titan has tight payload limits.
     # 50 chunks at once causes a massive payload that gets rate-limited/rejected indefinitely.
     SAFE_BATCH_SIZE = 5 
+    total = len(all_chunks)
     print(f'💾 Upserting {total} total chunks in safe batches of {SAFE_BATCH_SIZE}...')
 
     texts = [chunk['text'] for chunk in all_chunks]
