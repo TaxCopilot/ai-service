@@ -63,12 +63,21 @@ def retrieve_relevant_law(query: str, top_k: int = 5) -> str:
     passages = []
     for doc, score in search_results:
         meta = doc.metadata
+        section_num = meta.get('section_number')
+        section_title = meta.get('section_title')
         source = meta.get('source', 'Unknown Document')
         
         # Log score for threshold observation
-        print(f'Score: {score:.4f} | Source: {source}')
+        print(f'Score: {score:.4f} | Source: {source} | Section: {section_num}')
 
-        header = f'[Source: {source}]'
+        if section_num:
+            header = f'[Section {section_num}'
+            if section_title:
+                header += f': {section_title}'
+            header += f' | Source: {source}]'
+        else:
+            header = f'[Source: {source}]'
+            
         passages.append(f'{header}\n{doc.page_content}')
 
     # Join the passages into a single block of structured context

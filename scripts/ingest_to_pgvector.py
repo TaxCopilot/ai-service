@@ -65,12 +65,24 @@ def chunk_text(document: dict) -> list[dict]:
     
     chunks = text_splitter.split_text(document['text'])
     
+    current_section_number = None
+    current_section_title = None
+    
     result = []
     for chunk in chunks:
+        # Regex to detect "Section 73. Title" or "Rule 142 Title" near the start of a chunk
+        match = re.search(r'(?:Section|Rule)\s+(\d+[A-Z]*)[.\-\s]*([^\n]*)', chunk[:200], flags=re.IGNORECASE)
+        if match:
+            current_section_number = match.group(1).strip()
+            title = match.group(2).strip()
+            current_section_title = title if title else None
+
         meta = {
             'source': document['source'],
             'document_type': document.get('document_type', 'unknown'),
-            'tax_type': document.get('tax_type', 'GST')
+            'tax_type': document.get('tax_type', 'GST'),
+            'section_number': current_section_number,
+            'section_title': current_section_title
         }
         result.append({'text': chunk, 'metadata': meta})
         
@@ -96,7 +108,7 @@ def ingest_to_pgvector():
         model_id=BEDROCK_MODEL_ID
     )
 
-    collection_name = 'gst_laws'
+    collection_name = 'tax_laws'
     
     vector_store = PGVector(
         embeddings=embeddings,
