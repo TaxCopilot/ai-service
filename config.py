@@ -1,6 +1,6 @@
 'App config — all values come from environment variables (or .env).\nImport `settings` everywhere; never instantiate Settings() directly.\n'
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,8 +17,15 @@ class Settings(BaseSettings):
     aws_secret_access_key: str | None = Field(default=None)
 
     # Shared secret expected in the X-API-Key header from the TypeScript backend.
-    # Leave unset (None) during local development to disable the check.
+    # Leave unset (None) or empty during local development to disable the check.
     api_key: str | None = Field(default=None)
+
+    @field_validator('api_key', mode='before')
+    @classmethod
+    def empty_str_to_none(cls, v):
+        if v == '' or v is None:
+            return None
+        return v
 
     # Gemini — LLM
     gemini_api_key: str = Field(default='...', alias='GEMINI_API_KEY')
