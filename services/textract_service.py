@@ -27,17 +27,26 @@ _textract_client: botocore.client.BaseClient | None = None
 _s3_client: botocore.client.BaseClient | None = None
 
 
+def _get_boto_credentials() -> dict:
+    """Get AWS credentials from settings for boto3 clients."""
+    creds = {'region_name': settings.aws_region}
+    if settings.aws_access_key_id and settings.aws_secret_access_key:
+        creds['aws_access_key_id'] = settings.aws_access_key_id
+        creds['aws_secret_access_key'] = settings.aws_secret_access_key
+    return creds
+
+
 def _get_textract_client() -> botocore.client.BaseClient:
     global _textract_client
     if _textract_client is None:
-        _textract_client = boto3.client(_TEXTRACT_SERVICE, region_name=settings.aws_region)
+        _textract_client = boto3.client(_TEXTRACT_SERVICE, **_get_boto_credentials())
     return _textract_client
 
 
 def _get_s3_client() -> botocore.client.BaseClient:
     global _s3_client
     if _s3_client is None:
-        _s3_client = boto3.client(_S3_SERVICE, region_name=settings.aws_region)
+        _s3_client = boto3.client(_S3_SERVICE, **_get_boto_credentials())
     return _s3_client
 
 
@@ -86,9 +95,17 @@ def extract_text_from_s3(s3_bucket: str, s3_key: str) -> str:
         )
     except ClientError as exc:
         code = exc.response['Error']['Code']
-        logger.warning('Textract error [%s] for s3://%s/%s - trying PyPDF2 fallback', code, s3_bucket, s3_key)
-        # Fallback to PyMuPDF for credential/permission issues
-        if code in ('UnrecognizedClientException', 'AccessDeniedException', 'InvalidAccessKeyId'):
+        logger.warning('Textract error [%s] for s3://%s/%s - trying PyMuPDF fallback', code, s3_bucket, s3_key)
+        # Fallback to PyMuPDF for credential/permission/format issues
+        fallback_codes = (
+            'UnrecognizedClientException',
+            'AccessDeniedException', 
+            'InvalidAccessKeyId',
+            'UnsupportedDocumentException',  # PDF format not supported by Textract
+            'BadDocumentException',          # Corrupted document
+            'DocumentTooLargeException',     # Document too large
+        )
+        if code in fallback_codes:
             return _extract_with_pymupdf(s3_bucket, s3_key)
         raise RuntimeError(f'Textract failed ({code}) for s3://{s3_bucket}/{s3_key}') from exc
     except BotoCoreError as exc:

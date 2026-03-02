@@ -1,5 +1,4 @@
 import logging
-import os
 
 from langchain_aws import BedrockEmbeddings
 from langchain_postgres.vectorstores import PGVector
@@ -11,12 +10,12 @@ logger = logging.getLogger(__name__)
 _COLLECTION_NAME = 'tax_laws'
 
 
-def retrieve_relevant_law(query: str, top_k: int = 5) -> str:
-    
-    #Retrieves the most relevant legal texts from PGVector based on the query.
-    #Returns a formatted string containing the relevant sections.
-    
-    print(f'🔍 GST RAG: Searching legal corpus for: {query[:50]}...')
+def retrieve_relevant_law(query: str, top_k: int = 5) -> tuple[list[str], list[str]]:
+    """
+    Retrieves the most relevant legal texts from PGVector based on the query.
+    Returns a tuple of (passages, sources).
+    """
+    logger.info('RAG: Searching legal corpus for: %s...', query[:50])
 
     import boto3
     bedrock_client = boto3.client(
@@ -41,13 +40,10 @@ def retrieve_relevant_law(query: str, top_k: int = 5) -> str:
         use_jsonb=True,
     )
 
-    search_results = vector_store.similarity_search_with_score(
-        query,
-        k=min(top_k, 5)
-    )
+    search_results = vector_store.similarity_search_with_score(query, k=min(top_k, 5))
 
     if not search_results:
-        print('No relevant legal passages found in DB. Falling back to Mock RAG Data for local testing...')
+        logger.warning('No relevant legal passages found in DB. Using mock data.')
         mock_passage = (
             "[Section 73: Determination of tax not paid or short paid]\n"
             "(1) Where it appears to the proper officer that any tax has not been paid or short paid "
@@ -56,19 +52,17 @@ def retrieve_relevant_law(query: str, top_k: int = 5) -> str:
             "facts to evade tax, he shall serve notice on the person chargeable with tax which has not "
             "been so paid or which has been so short paid."
         )
-        return mock_passage
+        return [mock_passage], ['CGST Act 2017']
 
-    # 4. Format the output with clear section headers for the LLM
-    print('--- HACKATHON DEBUG: RETRIEVAL SCORES ---')
     passages = []
+    sources = []
     for doc, score in search_results:
         meta = doc.metadata
         section_num = meta.get('section_number')
         section_title = meta.get('section_title')
         source = meta.get('source', 'Unknown Document')
         
-        # Log score for threshold observation
-        print(f'Score: {score:.4f} | Source: {source} | Section: {section_num}')
+        logger.debug('Score: %.4f | Source: %s | Section: %s', score, source, section_num)
 
         if section_num:
             header = f'[Section {section_num}'
@@ -79,9 +73,7 @@ def retrieve_relevant_law(query: str, top_k: int = 5) -> str:
             header = f'[Source: {source}]'
             
         passages.append(f'{header}\n{doc.page_content}')
+        sources.append(source)
 
-    # Join the passages into a single block of structured context
-    law_context = '\n\n'.join(passages)
-    print(f'✅ Retrieved {len(search_results)} grounded legal passages.')
-    
-    return law_context
+    logger.info('Retrieved %d grounded legal passages.', len(search_results))
+    return passages, sources

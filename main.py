@@ -35,6 +35,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         settings.aws_region,
         settings.database_url.split('@')[-1] if '@' in settings.database_url else 'local',
     )
+    
+    # Debug: Log AWS credentials status
+    if settings.aws_access_key_id:
+        logger.info('AWS credentials loaded: %s...', settings.aws_access_key_id[:8])
+    else:
+        logger.warning('AWS credentials NOT loaded - check .env file')
 
     if settings.api_key is None:
         logger.warning('API_KEY is not set — X-API-Key authentication is DISABLED.')
