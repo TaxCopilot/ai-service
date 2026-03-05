@@ -1,9 +1,10 @@
-"""
+'''
 TaxCopilot AI Microservice entry point.
 
 Run locally:
     uvicorn main:app --reload --port 8001
-"""
+'''
+
 
 import logging
 import sys
@@ -16,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import router
 from config import settings
-
+from services.db_service import ensure_table
 
 
 logging.basicConfig(
@@ -35,15 +36,19 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         settings.aws_region,
         settings.database_url.split('@')[-1] if '@' in settings.database_url else 'local',
     )
-    
-    # Debug: Log AWS credentials status
+
     if settings.aws_access_key_id:
         logger.info('AWS credentials loaded: %s...', settings.aws_access_key_id[:8])
     else:
-        logger.warning('AWS credentials NOT loaded - check .env file')
+        logger.warning('AWS credentials NOT loaded — check .env file')
 
     if settings.api_key is None:
         logger.warning('API_KEY is not set — X-API-Key authentication is DISABLED.')
+
+    try:
+        ensure_table()
+    except Exception as exc:
+        logger.error('Failed to ensure document_cache table: %s', exc)
 
     yield
     logger.info('Shutting down.')
@@ -70,17 +75,6 @@ app.include_router(router)
 @app.get('/health', tags=['ops'])
 def health() -> dict[str, str]:
     return {'status': 'ok', 'service': 'taxcopilot-ai', 'version': '1.0.0'}
-
-
-from pydantic import BaseModel
-from services.draft_service import NoticeResponse, generate_notice_reply
-
-class DraftRequest(BaseModel):
-    query: str
-
-@app.post('/api/draft', response_model=NoticeResponse, tags=['Drafting'])
-def create_draft(request: DraftRequest):
-    return generate_notice_reply(request.query)
 
 
 if __name__ == '__main__':
