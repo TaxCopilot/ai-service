@@ -1,7 +1,7 @@
 import logging
 import re
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_aws import ChatBedrockConverse
 from pydantic import BaseModel, Field
 
 from config import settings
@@ -50,7 +50,7 @@ def _extract_and_validate_citations(llm_output: str, retrieved_law: str) -> bool
     if not citations:
          return True
          
-    for cite in citations:
+    for cite in set(citations):
         # Use simple lowercase containment check for robustness
         clean_cite = cite.lower().strip()
         
@@ -59,46 +59,50 @@ def _extract_and_validate_citations(llm_output: str, retrieved_law: str) -> bool
         if num_match:
             number = num_match.group(0)
             if number not in retrieved_law.lower():
-                logger.warning(f'🚨 HALLUCINATION DETECTED: {cite} (number {number}) not in retrieved context.')
+                logger.warning('🚨 HALLUCINATION DETECTED: %s (number %s) not in retrieved context.', cite, number)
                 return False
         elif clean_cite not in retrieved_law.lower():
-            logger.warning(f'🚨 HALLUCINATION DETECTED: {cite} not in retrieved context.')
+            logger.warning('🚨 HALLUCINATION DETECTED: %s not in retrieved context.', cite)
             return False
             
     return True
 
-def generate_notice_reply(query: str) -> NoticeResponse:
+def generate_notice_reply(document_id: str, extracted_text: str, retrieved_law: str, unique_sources: list[str]) -> NoticeResponse:
     '''
-    Orchestrates the RAG pipeline to generate a grounded legal reply.
+    Orchestrates the RAG pipeline to generate a grounded legal reply using the retrieved laws.
     '''
-    law_context = retrieve_relevant_law(query)
-    
-    if not law_context:
+    if not retrieved_law.strip():
         return NoticeResponse(
-            draft_reply='Insufficient information in current legal corpus.',
+            draft_reply='Insufficient information in current legal corpus based on the provided text.',
             citations=[],
             is_grounded=False
         )
 
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        api_key=settings.gemini_api_key,
-        max_output_tokens=settings.llm_max_tokens,
-        temperature=settings.llm_temperature
+    import boto3
+    session = boto3.Session(
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+        region_name=settings.aws_region
+    )
+    llm = ChatBedrockConverse(
+        model="global.amazon.nova-2-lite-v1:0",
+        max_tokens=settings.llm_max_tokens,
+        temperature=settings.llm_temperature,
+        client=session.client('bedrock-runtime')
     )
 
-    print(f"DEBUG: Gemini Request -> Model: gemini-2.5-flash")
+    logger.info("Drafting reply for document_id=%s using global.amazon.nova-2-lite-v1:0", document_id)
 
-    prompt = f'Retrieved Legal Context:\n\n{law_context}\n\nUser Query: {query}'
+    prompt = f'Retrieved Legal Context:\n\n{retrieved_law}\n\nNotice Text to Reply To:\n\n{extracted_text}'
     
     response = llm.invoke([('system', _SYSTEM_PROMPT), ('user', prompt)])
-    content = response.content
+    content = str(response.content)
     
-    is_valid = _extract_and_validate_citations(content, law_context)
+    is_valid = _extract_and_validate_citations(content, retrieved_law)
     
     # If hallucination detected, attempt ONE surgical regeneration
     if not is_valid:
-        print('♻️ Hallucination detected. Retrying with strict warnings...')
+        logger.warning('♻️ Hallucination detected for %s. Retrying with strict warnings...', document_id)
         warning_msg = (
             'WARNING: Your previous draft cited sections/rules NOT present in the context. '
             'REGENERATE the draft and ONLY cite the legal text provided. '
@@ -106,9 +110,9 @@ def generate_notice_reply(query: str) -> NoticeResponse:
         )
         retry_prompt = f'{prompt}\n\n{warning_msg}'
         response = llm.invoke([('system', _SYSTEM_PROMPT), ('user', retry_prompt)])
-        content = response.content
+        content = str(response.content)
         
-        is_valid = _extract_and_validate_citations(content, law_context)
+        is_valid = _extract_and_validate_citations(content, retrieved_law)
 
     if not is_valid:
          return NoticeResponse(
@@ -122,9 +126,13 @@ def generate_notice_reply(query: str) -> NoticeResponse:
         try:
             import json
             data = json.loads(json_match.group(0))
+            
+            # Combine validated sources directly from pg-vector and explicit matched llm citations
+            final_citations = list(set(data.get('citations', []) + unique_sources))
+            
             return NoticeResponse(
                 draft_reply=data.get('draft_reply', 'Error parsing draft.'),
-                citations=data.get('citations', []),
+                citations=final_citations,
                 is_grounded=True
             )
         except Exception:
@@ -132,6 +140,6 @@ def generate_notice_reply(query: str) -> NoticeResponse:
 
     return NoticeResponse(
         draft_reply=content,
-        citations=re.findall(r'(?:Section|Rule)\s+\d+[A-Z]*', content),
+        citations=list(set(re.findall(r'(?:Section|Rule)\s+\d+[A-Z]*', content) + unique_sources)),
         is_grounded=is_valid
     )
