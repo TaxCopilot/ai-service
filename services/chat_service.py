@@ -8,7 +8,9 @@ No document upload or OCR required.
 
 import logging
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from botocore.exceptions import BotoCoreError, ClientError
+from langchain_aws import ChatBedrockConverse
+from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from config import settings
@@ -69,9 +71,9 @@ def generate_chat_reply(
     try:
         response = llm.invoke([('system', _CHAT_SYSTEM_PROMPT), ('user', prompt)])
         answer_text = str(response.content)
-    except Exception as exc:
-        logger.error('Chat: LLM generation failed for query="%s...": %s', message[:60], exc)
-        raise RuntimeError(f'LLM generation failed: {exc}') from exc
+    except (BotoCoreError, ClientError) as exc:
+        logger.error('Chat: Bedrock API failed for query="%s...": %s', message[:60], exc)
+        raise RuntimeError(f'Bedrock LLM generation failed: {exc}') from exc
 
     return ChatResponse(
         answer=answer_text,
