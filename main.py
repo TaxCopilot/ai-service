@@ -72,7 +72,14 @@ _MAX_BODY_SIZE_BYTES = 10 * 1024  # 10KB
 @app.middleware('http')
 async def limit_body_size(request: Request, call_next):
     if 'content-length' in request.headers:
-        if int(request.headers['content-length']) > _MAX_BODY_SIZE_BYTES:
+        try:
+            content_length = int(request.headers['content-length'])
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={'detail': 'Invalid Content-Length header.'},
+            )
+        if content_length > _MAX_BODY_SIZE_BYTES:
             return JSONResponse(
                 status_code=413,
                 content={'detail': 'Request body exceeds 10KB limit.'},
