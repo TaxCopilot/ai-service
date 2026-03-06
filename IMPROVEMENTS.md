@@ -31,7 +31,7 @@ the route-level `RuntimeError` catch and returns a generic, unstructured `500`.
 
 ---
 
-### 2. `kb_service` — no exception handling on Bedrock or PGVector calls
+### ~~2. `kb_service` — no exception handling on Bedrock or PGVector calls~~ ✅ Done
 
 **File:** `services/kb_service.py`
 
@@ -62,7 +62,7 @@ or Bedrock `ThrottlingException`s are not `RuntimeError`s, so they bypass the ro
 
 ---
 
-### 4. `kb_service` — silent mock data fallback masks real failures
+### ~~4. `kb_service` — silent mock data fallback masks real failures~~ ✅ Done
 
 **File:** `services/kb_service.py` (lines 46–55)
 

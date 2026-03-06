@@ -1,5 +1,6 @@
 import logging
 
+from botocore.exceptions import BotoCoreError, ClientError
 from langchain_aws import BedrockEmbeddings
 from langchain_postgres.vectorstores import PGVector
 
@@ -14,45 +15,47 @@ def retrieve_relevant_law(query: str, top_k: int = 5) -> tuple[list[str], list[s
     """
     Retrieves the most relevant legal texts from PGVector based on the query.
     Returns a tuple of (passages, sources).
+    
+    If the database or AWS Bedrock is unavailable, returns ([], []) to 
+    trigger a safe 'insufficient information' fallback in the LLM generative layer.
     """
     logger.info('RAG: Searching legal corpus for: %s...', query[:50])
 
-    import boto3
-    bedrock_client = boto3.client(
-        "bedrock-runtime",
-        region_name=settings.aws_region,
-        aws_access_key_id=settings.aws_access_key_id,
-        aws_secret_access_key=settings.aws_secret_access_key,
-    )
-    embeddings = BedrockEmbeddings(
-        client=bedrock_client,
-        model_id='amazon.titan-embed-text-v2:0'
-    )
+    try:
+        import boto3
+        bedrock_client = boto3.client(
+            "bedrock-runtime",
+            region_name=settings.aws_region,
+            aws_access_key_id=settings.aws_access_key_id,
+            aws_secret_access_key=settings.aws_secret_access_key,
+        )
+        embeddings = BedrockEmbeddings(
+            client=bedrock_client,
+            model_id='amazon.titan-embed-text-v2:0'
+        )
 
-    db_url = settings.database_url
-    if db_url.startswith('postgresql://'):
-        db_url = db_url.replace('postgresql://', 'postgresql+psycopg://')
+        db_url = settings.database_url
+        if db_url.startswith('postgresql://'):
+            db_url = db_url.replace('postgresql://', 'postgresql+psycopg://')
 
-    vector_store = PGVector(
-        embeddings=embeddings,
-        collection_name=_COLLECTION_NAME,
-        connection=db_url,
-        use_jsonb=True,
-    )
+        vector_store = PGVector(
+            embeddings=embeddings,
+            collection_name=_COLLECTION_NAME,
+            connection=db_url,
+            use_jsonb=True,
+        )
 
-    search_results = vector_store.similarity_search_with_score(query, k=min(top_k, 5))
+        search_results = vector_store.similarity_search_with_score(query, k=min(top_k, 5))
+    except (BotoCoreError, ClientError) as exc:
+        logger.error('KB API Error: Bedrock embedding generation failed — %s', exc)
+        return [], []
+    except Exception as exc:
+        logger.error('KB DB Error: PGVector similarity search failed — %s', exc)
+        return [], []
 
     if not search_results:
-        logger.warning('No relevant legal passages found in DB. Using mock data.')
-        mock_passage = (
-            "[Section 73: Determination of tax not paid or short paid]\n"
-            "(1) Where it appears to the proper officer that any tax has not been paid or short paid "
-            "or erroneously refunded, or where input tax credit has been wrongly availed or utilised "
-            "for any reason, other than the reason of fraud or any wilful-misstatement or suppression of "
-            "facts to evade tax, he shall serve notice on the person chargeable with tax which has not "
-            "been so paid or which has been so short paid."
-        )
-        return [mock_passage], ['CGST Act 2017']
+        logger.warning('No relevant legal passages found in DB. Returning empty context.')
+        return [], []
 
     passages = []
     sources = []
