@@ -10,8 +10,8 @@ from services.draft_service import generate_notice_reply
 
 class TestRAGGrounding(unittest.TestCase):
     def setUp(self):
-        print(f"\n⚙️  CONFIG CHECK:")
-        print(f"   Model:  Gemini 2.5 Pro")
+        print(f"\n[CONFIG CHECK]")
+        print(f"   Model:  Amazon Nova 2 Lite")
 
     @patch('services.draft_service.retrieve_relevant_law')
     def test_grounded_drafting(self, mock_retrieve):
@@ -23,9 +23,14 @@ class TestRAGGrounding(unittest.TestCase):
             "not pay the amount specified in the notice."
         )
 
-        print("\n🧪 Testing GROUNDED Generation (Mocked Context)...")
+        print("\n[TEST] Testing GROUNDED Generation (Mocked Context)...")
         query = "What does Section 73 say about tax determination?"
-        response = generate_notice_reply(query)
+        response = generate_notice_reply(
+            document_id="mock_doc_1",
+            extracted_text=query,
+            retrieved_law=mock_retrieve.return_value,
+            unique_sources=["Section 73"]
+        )
 
         print(f"Draft Reply: {response.draft_reply[:150]}...")
         print(f"Citations: {response.citations}")
@@ -41,18 +46,23 @@ class TestRAGGrounding(unittest.TestCase):
         # 2. Mock empty context (Safe Failure)
         mock_retrieve.return_value = ""
 
-        print("\n🧪 Testing SAFE FAILURE (Empty Context)...")
+        print("\n[TEST] Testing SAFE FAILURE (Empty Context)...")
         query = "How to make a pizza?"
-        response = generate_notice_reply(query)
+        response = generate_notice_reply(
+            document_id="mock_doc_2",
+            extracted_text=query,
+            retrieved_law=mock_retrieve.return_value,
+            unique_sources=[]
+        )
 
         print(f"Draft Reply: {response.draft_reply}")
         print(f"Citations: {response.citations}")
         print(f"Is Grounded: {response.is_grounded}")
 
         # Verification
-        self.assertEqual(response.draft_reply, "Insufficient information in current legal corpus.")
+        self.assertEqual(response.draft_reply, "Insufficient information in current legal corpus based on the provided text.")
         self.assertFalse(response.is_grounded)
 
 if __name__ == "__main__":
-    print("🚀 Running Light-Touch Verification (Zero Vector Load)...")
+    print("[INIT] Running Light-Touch Verification (Zero Vector Load)...")
     unittest.main()
