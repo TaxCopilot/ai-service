@@ -16,7 +16,7 @@ Work through these in order by priority. Each item is isolated and can be done i
 
 ## 🔴 P0 — Critical: Unhandled Exceptions (Silent 500s)
 
-### 1. `db_service` — no exception handling on DB calls
+### ~~1. `db_service` — no exception handling on DB calls~~ ✅ Done
 
 **Files:** `services/db_service.py`, `api/routes.py`
 

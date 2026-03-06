@@ -184,7 +184,13 @@ async def _handle_decode(request: AskRequest) -> NoticeResponse:
     )
 
     # ---- 1. Check persistent cache ----
-    cached = await _run(get_cached_doc, document_id)
+    try:
+        cached = await _run(get_cached_doc, document_id)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={'stage': 'cache', 'error': str(exc)},
+        ) from exc
 
     if cached is not None and not request.regenerate:
         logger.info('ask | mode=decode | cache HIT (full) | id=%s', document_id)
@@ -241,15 +247,24 @@ async def _handle_decode(request: AskRequest) -> NoticeResponse:
         ) from exc
 
     # ---- 5. Persist to cache ----
-    await _run(
-        save_cached_doc,
-        document_id,
-        extracted_text,
-        result.draft_reply,
-        result.citations,
-        result.is_grounded,
-        request.s3_key,
-    )
+    try:
+        await _run(
+            save_cached_doc,
+            document_id,
+            extracted_text,
+            result.draft_reply,
+            result.citations,
+            result.is_grounded,
+            request.s3_key,
+        )
+    except RuntimeError as exc:
+        # Cache write failure is non-fatal — the response is already generated.
+        # Log the error and return the result anyway; next request will regenerate.
+        logger.error(
+            'ask | mode=decode | cache save FAILED for id=%s: %s',
+            document_id,
+            exc,
+        )
 
     logger.info('ask | mode=decode | complete | id=%s', document_id)
     return result

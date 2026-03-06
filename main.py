@@ -47,8 +47,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     try:
         ensure_table()
-    except Exception as exc:
-        logger.error('Failed to ensure document_cache table: %s', exc)
+    except RuntimeError as exc:
+        logger.error(
+            'document_cache table could not be created: %s — '
+            'decode mode will fail on cache operations.',
+            exc,
+        )
 
     yield
     logger.info('Shutting down.')

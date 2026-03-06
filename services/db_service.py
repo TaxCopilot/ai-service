@@ -52,9 +52,13 @@ def _get_conn_str() -> str:
 
 def ensure_table() -> None:
     '''Create the document_cache table if it does not already exist.'''
-    with psycopg.connect(_get_conn_str()) as conn:
-        conn.execute(_CREATE_TABLE_SQL)
-        conn.commit()
+    try:
+        with psycopg.connect(_get_conn_str()) as conn:
+            conn.execute(_CREATE_TABLE_SQL)
+            conn.commit()
+    except psycopg.Error as exc:
+        logger.exception('Failed to ensure document_cache table: %s', exc)
+        raise RuntimeError(f'DB setup failed: {exc}') from exc
     logger.info('document_cache table ensured.')
 
 
@@ -69,8 +73,12 @@ def get_cached_doc(document_id: str) -> CachedDocument | None:
         FROM document_cache
         WHERE document_id = %s
     '''
-    with psycopg.connect(_get_conn_str()) as conn:
-        row = conn.execute(sql, (document_id,)).fetchone()
+    try:
+        with psycopg.connect(_get_conn_str()) as conn:
+            row = conn.execute(sql, (document_id,)).fetchone()
+    except psycopg.Error as exc:
+        logger.exception('DB error fetching cache for document_id=%s: %s', document_id, exc)
+        raise RuntimeError(f'Cache lookup failed for {document_id}: {exc}') from exc
 
     if row is None:
         return None
@@ -117,16 +125,20 @@ def save_cached_doc(
             updated_at    = EXCLUDED.updated_at
     '''
     now = datetime.now(timezone.utc)
-    with psycopg.connect(_get_conn_str()) as conn:
-        conn.execute(sql, (
-            document_id,
-            s3_key,
-            extracted_text,
-            draft_reply,
-            json.dumps(citations),
-            is_grounded,
-            now,
-        ))
-        conn.commit()
+    try:
+        with psycopg.connect(_get_conn_str()) as conn:
+            conn.execute(sql, (
+                document_id,
+                s3_key,
+                extracted_text,
+                draft_reply,
+                json.dumps(citations),
+                is_grounded,
+                now,
+            ))
+            conn.commit()
+    except psycopg.Error as exc:
+        logger.exception('DB error saving cache for document_id=%s: %s', document_id, exc)
+        raise RuntimeError(f'Cache save failed for {document_id}: {exc}') from exc
 
     logger.info('Cache SAVED for document_id=%s', document_id)
