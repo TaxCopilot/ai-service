@@ -17,3 +17,6 @@ pymupdf==1.23.26
 
 # AWS SDK — used by Textract, Bedrock Knowledge Bases, and LangChain-AWS
 boto3==1.37.5
+
+# Dev / Test
+pytest==8.3.4

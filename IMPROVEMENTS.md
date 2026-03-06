@@ -177,19 +177,19 @@ mode is degraded and cache writes will fail.
 
 ## 🧪 Tests Needed
 
-### 12. Unit test — JSON parser in `draft_service`
+### ~~12. Unit test — JSON parser in `draft_service`~~ ✅ Done
 
 **File:** `tests/test_draft_service.py`
 Test the JSON extraction path against: clean JSON, JSON with newlines, malformed JSON
 (should log warning and fall through to regex fallback).
 
-### 13. Unit test — Textract line filtering
+### ~~13. Unit test — Textract line filtering~~ ✅ Done
 
 **File:** `tests/test_textract_service.py`
 Mock the boto3 response and verify WORD blocks are excluded, LINE blocks are joined,
 and low-confidence lines are dropped correctly.
 
-### 14. Integration test — error paths return correct HTTP codes
+### ~~14. Integration test — error paths return correct HTTP codes~~ ✅ Done
 
 **File:** `tests/test_routes.py`
 Use `moto` + `pytest` to verify:
