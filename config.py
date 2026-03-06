@@ -36,6 +36,7 @@ class Settings(BaseSettings):
 
 
     # Bedrock — Knowledge Bases (Legacy)
+    bedrock_model_id: str = Field(default='global.amazon.nova-2-lite-v1:0')
     bedrock_knowledge_base_id: str = Field(default='PLACEHOLDER_KB_ID')
     bedrock_retrieval_results: int = Field(default=5)
 

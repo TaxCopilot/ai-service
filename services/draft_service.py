@@ -3,6 +3,7 @@ import logging
 import re
 
 import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 from langchain_aws import ChatBedrockConverse
 from pydantic import BaseModel, Field
 
@@ -87,25 +88,25 @@ def generate_notice_reply(document_id: str, extracted_text: str, retrieved_law: 
             region_name=settings.aws_region,
         )
         llm = ChatBedrockConverse(
-            model='global.amazon.nova-2-lite-v1:0',
+            model=settings.bedrock_model_id,
             max_tokens=settings.llm_max_tokens,
             temperature=settings.llm_temperature,
             client=session.client('bedrock-runtime'),
         )
-    except Exception as exc:
+    except (BotoCoreError, ClientError) as exc:
         logger.error('Draft: failed to initialise Bedrock client for %s: %s', document_id, exc)
         raise RuntimeError(f'LLM client initialisation failed: {exc}') from exc
 
-    logger.info('Drafting reply for document_id=%s using global.amazon.nova-2-lite-v1:0', document_id)
+    logger.info('Drafting reply for document_id=%s using %s', document_id, settings.bedrock_model_id)
 
     prompt = f'Retrieved Legal Context:\n\n{retrieved_law}\n\nNotice Text to Reply To:\n\n{extracted_text}'
     
     try:
         response = llm.invoke([('system', _SYSTEM_PROMPT), ('user', prompt)])
         content = str(response.content)
-    except Exception as exc:
-        logger.error('Draft: LLM generation failed for document_id=%s: %s', document_id, exc)
-        raise RuntimeError(f'LLM generation failed: {exc}') from exc
+    except (BotoCoreError, ClientError) as exc:
+        logger.error('Draft: Bedrock API failed for document_id=%s: %s', document_id, exc)
+        raise RuntimeError(f'Bedrock LLM generation failed: {exc}') from exc
 
     is_valid = _extract_and_validate_citations(content, retrieved_law)
 
@@ -121,9 +122,9 @@ def generate_notice_reply(document_id: str, extracted_text: str, retrieved_law: 
         try:
             response = llm.invoke([('system', _SYSTEM_PROMPT), ('user', retry_prompt)])
             content = str(response.content)
-        except Exception as exc:
-            logger.error('Draft: LLM retry failed for document_id=%s: %s', document_id, exc)
-            raise RuntimeError(f'LLM generation failed on retry: {exc}') from exc
+        except (BotoCoreError, ClientError) as exc:
+            logger.error('Draft: Bedrock API retry failed for document_id=%s: %s', document_id, exc)
+            raise RuntimeError(f'Bedrock LLM generation failed on retry: {exc}') from exc
         
         is_valid = _extract_and_validate_citations(content, retrieved_law)
 

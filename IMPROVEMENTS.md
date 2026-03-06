@@ -109,7 +109,7 @@ and execution falls through to the regex fallback silently.
 
 ---
 
-### 7. Hardcoded model name in `draft_service`
+### ~~7. Hardcoded model name in `draft_service`~~ ✅ Done
 
 **File:** `services/draft_service.py` (line 88), `config.py`
 
