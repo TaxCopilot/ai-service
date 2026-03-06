@@ -1,8 +1,10 @@
 import logging
 
+import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from langchain_aws import BedrockEmbeddings
 from langchain_postgres.vectorstores import PGVector
+from sqlalchemy.exc import SQLAlchemyError
 
 from config import settings
 
@@ -22,16 +24,15 @@ def retrieve_relevant_law(query: str, top_k: int = 5) -> tuple[list[str], list[s
     logger.info('RAG: Searching legal corpus for: %s...', query[:50])
 
     try:
-        import boto3
         bedrock_client = boto3.client(
-            "bedrock-runtime",
+            'bedrock-runtime',
             region_name=settings.aws_region,
             aws_access_key_id=settings.aws_access_key_id,
             aws_secret_access_key=settings.aws_secret_access_key,
         )
         embeddings = BedrockEmbeddings(
             client=bedrock_client,
-            model_id='amazon.titan-embed-text-v2:0'
+            model_id='amazon.titan-embed-text-v2:0',
         )
 
         db_url = settings.database_url
@@ -49,7 +50,7 @@ def retrieve_relevant_law(query: str, top_k: int = 5) -> tuple[list[str], list[s
     except (BotoCoreError, ClientError) as exc:
         logger.error('KB API Error: Bedrock embedding generation failed — %s', exc)
         return [], []
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         logger.error('KB DB Error: PGVector similarity search failed — %s', exc)
         return [], []
 
