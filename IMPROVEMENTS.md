@@ -123,7 +123,7 @@ a code edit instead of a config change.
 
 ---
 
-### 8. `kb_service` — new boto3 client and PGVector instance on every request
+### ~~8. `kb_service` — new boto3 client and PGVector instance on every request~~ ✅ Done
 
 **File:** `services/kb_service.py`
 
