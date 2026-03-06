@@ -18,7 +18,7 @@ _BEDROCK_EMBEDDING_MODEL = 'amazon.titan-embed-text-v2:0'
 # Module-level singletons — created once and reused across requests.
 _bedrock_client: botocore.client.BaseClient | None = None
 _vector_store: PGVector | None = None
-_kb_lock = threading.Lock()
+_kb_lock = threading.RLock()
 
 
 def _get_bedrock_client() -> botocore.client.BaseClient:
