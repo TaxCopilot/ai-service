@@ -8,6 +8,7 @@ Required IAM: textract:DetectDocumentText, s3:GetObject.
 """
 
 import logging
+import threading
 import time
 
 import boto3
@@ -23,6 +24,7 @@ _BLOCK_TYPE_LINE = 'LINE'
 _MAX_POLL_SECONDS = 300
 
 _textract_client: botocore.client.BaseClient | None = None
+_textract_lock = threading.Lock()
 
 
 def _get_boto_credentials() -> dict:
@@ -37,7 +39,9 @@ def _get_boto_credentials() -> dict:
 def _get_client() -> botocore.client.BaseClient:
     global _textract_client
     if _textract_client is None:
-        _textract_client = boto3.client(_TEXTRACT_SERVICE, **_get_boto_credentials())
+        with _textract_lock:
+            if _textract_client is None:
+                _textract_client = boto3.client(_TEXTRACT_SERVICE, **_get_boto_credentials())
     return _textract_client
 
 

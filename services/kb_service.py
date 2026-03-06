@@ -1,4 +1,5 @@
 import logging
+import threading
 
 import boto3
 import botocore.client
@@ -17,37 +18,42 @@ _BEDROCK_EMBEDDING_MODEL = 'amazon.titan-embed-text-v2:0'
 # Module-level singletons — created once and reused across requests.
 _bedrock_client: botocore.client.BaseClient | None = None
 _vector_store: PGVector | None = None
+_kb_lock = threading.Lock()
 
 
 def _get_bedrock_client() -> botocore.client.BaseClient:
     global _bedrock_client
     if _bedrock_client is None:
-        _bedrock_client = boto3.client(
-            'bedrock-runtime',
-            region_name=settings.aws_region,
-            aws_access_key_id=settings.aws_access_key_id,
-            aws_secret_access_key=settings.aws_secret_access_key,
-        )
+        with _kb_lock:
+            if _bedrock_client is None:
+                _bedrock_client = boto3.client(
+                    'bedrock-runtime',
+                    region_name=settings.aws_region,
+                    aws_access_key_id=settings.aws_access_key_id,
+                    aws_secret_access_key=settings.aws_secret_access_key,
+                )
     return _bedrock_client
 
 
 def _get_vector_store() -> PGVector:
     global _vector_store
     if _vector_store is None:
-        db_url = settings.database_url
-        if db_url.startswith('postgresql://'):
-            db_url = db_url.replace('postgresql://', 'postgresql+psycopg://')
+        with _kb_lock:
+            if _vector_store is None:
+                db_url = settings.database_url
+                if db_url.startswith('postgresql://'):
+                    db_url = db_url.replace('postgresql://', 'postgresql+psycopg://')
 
-        embeddings = BedrockEmbeddings(
-            client=_get_bedrock_client(),
-            model_id=_BEDROCK_EMBEDDING_MODEL,
-        )
-        _vector_store = PGVector(
-            embeddings=embeddings,
-            collection_name=_COLLECTION_NAME,
-            connection=db_url,
-            use_jsonb=True,
-        )
+                embeddings = BedrockEmbeddings(
+                    client=_get_bedrock_client(),
+                    model_id=_BEDROCK_EMBEDDING_MODEL,
+                )
+                _vector_store = PGVector(
+                    embeddings=embeddings,
+                    collection_name=_COLLECTION_NAME,
+                    connection=db_url,
+                    use_jsonb=True,
+                )
     return _vector_store
 
 
