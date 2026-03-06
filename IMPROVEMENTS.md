@@ -47,7 +47,7 @@ entirely and returns an unstructured `500` with no log message.
 
 ---
 
-### 3. `chat_service` + `draft_service` — LLM `invoke()` is unguarded
+### ~~3. `chat_service` + `draft_service` — LLM `invoke()` is unguarded~~ ✅ Done
 
 **Files:** `services/chat_service.py`, `services/draft_service.py`
 

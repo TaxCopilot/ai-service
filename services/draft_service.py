@@ -1,6 +1,8 @@
+import json
 import logging
 import re
 
+import boto3
 from langchain_aws import ChatBedrockConverse
 from pydantic import BaseModel, Field
 
@@ -78,39 +80,50 @@ def generate_notice_reply(document_id: str, extracted_text: str, retrieved_law: 
             is_grounded=False
         )
 
-    import boto3
-    session = boto3.Session(
-        aws_access_key_id=settings.aws_access_key_id,
-        aws_secret_access_key=settings.aws_secret_access_key,
-        region_name=settings.aws_region
-    )
-    llm = ChatBedrockConverse(
-        model="global.amazon.nova-2-lite-v1:0",
-        max_tokens=settings.llm_max_tokens,
-        temperature=settings.llm_temperature,
-        client=session.client('bedrock-runtime')
-    )
+    try:
+        session = boto3.Session(
+            aws_access_key_id=settings.aws_access_key_id,
+            aws_secret_access_key=settings.aws_secret_access_key,
+            region_name=settings.aws_region,
+        )
+        llm = ChatBedrockConverse(
+            model='global.amazon.nova-2-lite-v1:0',
+            max_tokens=settings.llm_max_tokens,
+            temperature=settings.llm_temperature,
+            client=session.client('bedrock-runtime'),
+        )
+    except Exception as exc:
+        logger.error('Draft: failed to initialise Bedrock client for %s: %s', document_id, exc)
+        raise RuntimeError(f'LLM client initialisation failed: {exc}') from exc
 
-    logger.info("Drafting reply for document_id=%s using global.amazon.nova-2-lite-v1:0", document_id)
+    logger.info('Drafting reply for document_id=%s using global.amazon.nova-2-lite-v1:0', document_id)
 
     prompt = f'Retrieved Legal Context:\n\n{retrieved_law}\n\nNotice Text to Reply To:\n\n{extracted_text}'
     
-    response = llm.invoke([('system', _SYSTEM_PROMPT), ('user', prompt)])
-    content = str(response.content)
-    
+    try:
+        response = llm.invoke([('system', _SYSTEM_PROMPT), ('user', prompt)])
+        content = str(response.content)
+    except Exception as exc:
+        logger.error('Draft: LLM generation failed for document_id=%s: %s', document_id, exc)
+        raise RuntimeError(f'LLM generation failed: {exc}') from exc
+
     is_valid = _extract_and_validate_citations(content, retrieved_law)
-    
+
     # If hallucination detected, attempt ONE surgical regeneration
     if not is_valid:
-        logger.warning('♻️ Hallucination detected for %s. Retrying with strict warnings...', document_id)
+        logger.warning('Hallucination detected for %s. Retrying with strict warnings...', document_id)
         warning_msg = (
             'WARNING: Your previous draft cited sections/rules NOT present in the context. '
             'REGENERATE the draft and ONLY cite the legal text provided. '
             'Do NOT fabricate section numbers.'
         )
         retry_prompt = f'{prompt}\n\n{warning_msg}'
-        response = llm.invoke([('system', _SYSTEM_PROMPT), ('user', retry_prompt)])
-        content = str(response.content)
+        try:
+            response = llm.invoke([('system', _SYSTEM_PROMPT), ('user', retry_prompt)])
+            content = str(response.content)
+        except Exception as exc:
+            logger.error('Draft: LLM retry failed for document_id=%s: %s', document_id, exc)
+            raise RuntimeError(f'LLM generation failed on retry: {exc}') from exc
         
         is_valid = _extract_and_validate_citations(content, retrieved_law)
 
@@ -124,19 +137,18 @@ def generate_notice_reply(document_id: str, extracted_text: str, retrieved_law: 
     json_match = re.search(r'\{.*\}', content, re.DOTALL)
     if json_match:
         try:
-            import json
             data = json.loads(json_match.group(0))
-            
+
             # Combine validated sources directly from pg-vector and explicit matched llm citations
             final_citations = list(set(data.get('citations', []) + unique_sources))
-            
+
             return NoticeResponse(
                 draft_reply=data.get('draft_reply', 'Error parsing draft.'),
                 citations=final_citations,
-                is_grounded=True
+                is_grounded=True,
             )
-        except Exception:
-            pass
+        except json.JSONDecodeError as exc:
+            logger.warning('Draft: LLM output was not valid JSON for %s: %s', document_id, exc)
 
     return NoticeResponse(
         draft_reply=content,

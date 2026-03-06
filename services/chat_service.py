@@ -66,8 +66,12 @@ def generate_chat_reply(
 
     prompt = f'Retrieved Legal Context:\n\n{retrieved_law}\n\nUser Question: {message}'
 
-    response = llm.invoke([('system', _CHAT_SYSTEM_PROMPT), ('user', prompt)])
-    answer_text = str(response.content)
+    try:
+        response = llm.invoke([('system', _CHAT_SYSTEM_PROMPT), ('user', prompt)])
+        answer_text = str(response.content)
+    except Exception as exc:
+        logger.error('Chat: LLM generation failed for query="%s...": %s', message[:60], exc)
+        raise RuntimeError(f'LLM generation failed: {exc}') from exc
 
     return ChatResponse(
         answer=answer_text,
