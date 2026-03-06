@@ -151,7 +151,7 @@ re-evaluated conceptually on every call, even if Python caches them.
 
 ## 🟢 P2 — Low Priority / Hygiene
 
-### 10. Request body size limit
+### ~~10. Request body size limit~~ ✅ Done
 
 **File:** `main.py`
 
@@ -162,7 +162,7 @@ short text fields — a 10KB limit would be more than enough and would prevent a
 
 ---
 
-### 11. `ensure_table` startup failure is swallowed silently
+### ~~11. `ensure_table` startup failure is swallowed silently~~ ✅ Done
 
 **File:** `main.py` (lines 48–51)
 

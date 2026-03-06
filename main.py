@@ -12,8 +12,9 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from api.routes import router
 from config import settings
@@ -64,6 +65,19 @@ app = FastAPI(
     version='1.0.0',
     lifespan=lifespan,
 )
+
+_MAX_BODY_SIZE_BYTES = 10 * 1024  # 10KB
+
+
+@app.middleware('http')
+async def limit_body_size(request: Request, call_next):
+    if 'content-length' in request.headers:
+        if int(request.headers['content-length']) > _MAX_BODY_SIZE_BYTES:
+            return JSONResponse(
+                status_code=413,
+                content={'detail': 'Request body exceeds 10KB limit.'},
+            )
+    return await call_next(request)
 
 # Permissive CORS for the hackathon — restrict allow_origins before production.
 app.add_middleware(
