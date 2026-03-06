@@ -81,7 +81,7 @@ and returns `('CGST Act 2017',)` as the source. A broken DB connection produces 
 
 ## 🟡 P1 — Medium: Robustness Issues
 
-### 5. `textract_service` — infinite polling loop with no timeout
+### ~~5. `textract_service` — infinite polling loop with no timeout~~ ✅ Done
 
 **File:** `services/textract_service.py` (lines 62–67)
 
@@ -95,7 +95,7 @@ blocks forever, holding a thread pool slot.
 
 ---
 
-### 6. `draft_service` — bare `except Exception: pass` on JSON parse
+### ~~6. `draft_service` — bare `except Exception: pass` on JSON parse~~ ✅ Done
 
 **File:** `services/draft_service.py` (line 138)
 

@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 _TEXTRACT_SERVICE = 'textract'
 _BLOCK_TYPE_LINE = 'LINE'
+_MAX_POLL_SECONDS = 300
 
 _textract_client: botocore.client.BaseClient | None = None
 
@@ -59,7 +60,13 @@ def extract_text_from_s3(s3_bucket: str, s3_key: str) -> str:
         job_id = start_response['JobId']
         logger.info('Started Textract async job %s', job_id)
         
+        start_time = time.monotonic()
         while True:
+            if time.monotonic() - start_time > _MAX_POLL_SECONDS:
+                raise RuntimeError(
+                    f'Textract job timed out after {_MAX_POLL_SECONDS}s for s3://{s3_bucket}/{s3_key}'
+                )
+
             job_response = client.get_document_text_detection(JobId=job_id)
             status = job_response['JobStatus']
             if status in ['SUCCEEDED', 'FAILED', 'PARTIAL_SUCCESS']:
