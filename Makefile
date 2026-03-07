@@ -1,5 +1,11 @@
 .PHONY: setup run lint test help
 
+# Python and executable paths using the venv
+PYTHON = venv\Scripts\python
+UVICORN = venv\Scripts\uvicorn
+RUFF = venv\Scripts\ruff
+PYTEST = venv\Scripts\pytest
+
 ## Default target
 help:
 	@echo "Available commands:"
@@ -11,7 +17,8 @@ help:
 ## Create venv and install dependencies
 setup:
 	python -m venv venv
-	. venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt
+	$(PYTHON) -m pip install --upgrade pip
+	$(PYTHON) -m pip install -r requirements.txt
 	@echo ""
 	@echo "Setup complete. Next steps:"
 	@echo "  1. cp .env.example .env"
@@ -20,12 +27,13 @@ setup:
 
 ## Start the FastAPI dev server
 run:
-	. venv/bin/activate && uvicorn main:app --reload --port 8001
+	$(UVICORN) main:app --reload --port 8001
 
 ## Lint with Ruff
 lint:
-	. venv/bin/activate && ruff check . && ruff format --check .
+	$(RUFF) check .
+	$(RUFF) format --check .
 
 ## Run tests
 test:
-	. venv/bin/activate && pytest tests/ -v
+	$(PYTEST) tests/ -v
