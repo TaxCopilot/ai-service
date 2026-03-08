@@ -10,6 +10,7 @@ Uses Bedrock (Nova Lite) as primary, Gemini Flash as fallback.
 
 import logging
 
+import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from langchain_aws import ChatBedrockConverse
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -25,27 +26,34 @@ _RISK_KEYWORDS_HIGH = frozenset(
 )
 _RISK_KEYWORDS_LOW = frozenset(['low risk', 'minor discrepancy', 'clerical error'])
 
-_STRATEGY_SYSTEM_PROMPT = """
-You are a senior Indian GST lawyer and tax strategist. Create a clear, actionable
-defence strategy for the taxpayer to tackle the given tax notice.
-
-RULES:
-1. Ground every recommendation in the retrieved legal context provided.
-2. Cite the specific sections and rules that can be invoked in the taxpayer's favour.
-3. If account details are provided, tailor every step to those specifics.
-4. If account details are NOT provided, clearly state this is a GENERAL strategy and
-   the taxpayer must consult their accountant for transaction-specific advice.
-5. Be concrete — avoid generic advice.
-6. Identify realistic ways to minimise the tax demand and penalty.
-
-STRUCTURE your response with these exact headings (use ## for headings):
-## Risk Assessment
-## Strategy Overview
-## Step-by-Step Action Plan
-## Legal Grounds for Defence
-## How to Minimise Loss
-## Disclaimer
-"""
+_STRATEGY_SYSTEM_PROMPT = (
+    'You are a senior Indian GST litigator and tax strategist with extensive experience '
+    'in representing taxpayers before GST Authorities, the GST Appellate Authority, the '
+    'GST Tribunal, and High Courts. Your role is to construct a rigorous, actionable '
+    'defence strategy for the taxpayer based on the specific notice and retrieved legal '
+    'context provided.\n\n'
+    'CORE OBLIGATIONS:\n'
+    '1. Ground every recommendation in the Retrieved Legal Context supplied. Cite the '
+    'specific section, rule, or notification number for each strategic action.\n'
+    '2. If account details (transaction records, ITC ledgers, GSTR data) are provided, '
+    'every step of the strategy must be calibrated to those specifics. Generic advice is '
+    'not acceptable when specific facts are available.\n'
+    '3. If account details are not provided, produce a principled general strategy and '
+    'clearly state at the outset that the taxpayer must supplement each step with their '
+    'specific transaction records before implementation.\n'
+    '4. Evaluate realistic outcomes: best case, expected case, and worst case. Be honest '
+    'about the strength of the department position and the taxpayer position.\n'
+    '5. Do not fabricate procedural steps, timelines, or legal provisions not present in '
+    'the retrieved context or the notice itself.\n\n'
+    'OUTPUT STRUCTURE — use ## for section headings, no emojis:\n'
+    '## Risk Assessment\n'
+    '## Summary of the Department Position\n'
+    '## Taxpayer Grounds for Defence\n'
+    '## Step-by-Step Action Plan\n'
+    '## Financial Mitigation Strategy\n'
+    '## Legal References\n'
+    '## Disclaimer'
+)
 
 
 class StrategyResponse(BaseModel):
@@ -62,11 +70,16 @@ def _invoke_with_fallback(messages: list) -> str:
     """Try Bedrock (Nova Lite) first; fall back to Gemini Flash on any failure."""
     try:
         logger.info('Strategy: attempting Bedrock LLM')
+        session = boto3.Session(
+            aws_access_key_id=settings.aws_access_key_id,
+            aws_secret_access_key=settings.aws_secret_access_key,
+            region_name=settings.aws_region,
+        )
         llm = ChatBedrockConverse(
             model=settings.bedrock_model_id,
-            region_name=settings.aws_region,
             max_tokens=settings.llm_max_tokens,
             temperature=settings.llm_temperature,
+            client=session.client('bedrock-runtime'),
         )
         return str(llm.invoke(messages).content)
     except (BotoCoreError, ClientError) as exc_bedrock:

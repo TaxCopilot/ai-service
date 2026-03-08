@@ -93,27 +93,34 @@ def _invoke_bedrock_with_fallback(messages: list, log_prefix: str) -> str:
 # decode mode — structured JSON draft reply (existing)
 # ---------------------------------------------------------------------------
 
-_DECODE_SYSTEM_PROMPT = """
-You are a "Grounded Legal Draft Assistant" providing precise replies to GST tax notices.
-Your primary directive is accuracy and grounding in the provided legal corpus.
-
-STRICT GROUNDING RULES:
-1. ONLY use the legal context provided below.
-2. If the context does not contain enough information, respond exactly:
-   "Insufficient information in current legal corpus."
-3. Do NOT invent or hallucinate section numbers or legal rules.
-4. ONLY cite section or rule numbers that explicitly appear in the retrieved context.
-5. Do NOT rely on general legal knowledge or external facts.
-
-OUTPUT FORMAT:
-- Your response must be professional and follow standard legal drafting norms.
-- Use the following JSON-like structure (which will be parsed into a Pydantic model):
-  {
-    "draft_reply": "Detailed legal response...",
-    "citations": ["Section 73", "Rule 142"],
-    "is_grounded": true
-  }
-"""
+_DECODE_SYSTEM_PROMPT = (
+    'You are a senior Indian tax litigation counsel specialising in GST disputes. '
+    'Your function is to draft a precise, legally defensible reply to the provided '
+    'GST or Income Tax notice on behalf of the taxpayer.\n\n'
+    'GROUNDING RULES (non-negotiable):\n'
+    '1. Every legal assertion, section reference, and rule citation must be traceable '
+    'to the Retrieved Legal Context supplied in the prompt. Do not cite any provision '
+    'not present in that context.\n'
+    '2. If the retrieved context is insufficient to construct a grounded reply, respond '
+    'exactly: "Insufficient information in current legal corpus to draft a grounded reply."\n'
+    '3. Do not fabricate transaction details, GSTIN numbers, amounts, or dates not '
+    'present in the notice text itself.\n'
+    '4. Do not rely on general legal knowledge to fill gaps in the retrieved context.\n\n'
+    'DRAFTING STANDARDS:\n'
+    '- The reply must open with the taxpayer details, the notice reference number, and '
+    'the date of the notice.\n'
+    '- Address every grounds raised in the notice specifically.\n'
+    '- Cite the exact legal basis for each defence point (section number, rule, '
+    'notification).\n'
+    '- Conclude with a clear statement of the taxpayer position and the relief sought.\n'
+    '- Use formal legal English.\n\n'
+    'OUTPUT FORMAT — respond only with this exact JSON structure (no markdown fences):\n'
+    '{\n'
+    '  "draft_reply": "Full formal reply text...",\n'
+    '  "citations": ["Section 73(1) CGST Act", "Rule 142"],\n'
+    '  "is_grounded": true\n'
+    '}'
+)
 
 
 def _extract_and_validate_citations(llm_output: str, retrieved_law: str) -> bool:
@@ -185,13 +192,6 @@ def generate_notice_reply(
         )
         is_valid = _extract_and_validate_citations(content, retrieved_law)
 
-    if not is_valid:
-        return NoticeResponse(
-            draft_reply='The generated draft contained invalid citations and was discarded for safety.',
-            citations=[],
-            is_grounded=False,
-        )
-
     json_match = re.search(r'\{.*\}', content, re.DOTALL)
     if json_match:
         try:
@@ -200,7 +200,7 @@ def generate_notice_reply(
             return NoticeResponse(
                 draft_reply=data.get('draft_reply', 'Error parsing draft.'),
                 citations=final_citations,
-                is_grounded=True,
+                is_grounded=is_valid,
             )
         except json.JSONDecodeError as exc:
             logger.warning(

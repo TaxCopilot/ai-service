@@ -140,6 +140,5 @@ def extract_text_from_s3(s3_bucket: str, s3_key: str) -> str:
         len(lines), dropped, s3_bucket, s3_key,
     )
     
-    logger.info('--- RAW TEXTRACT OUTPUT START ---\n%s\n--- RAW TEXTRACT OUTPUT END ---', extracted)
 
     return extracted

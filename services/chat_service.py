@@ -8,6 +8,7 @@ No document upload or OCR required.
 
 import logging
 
+import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from langchain_aws import ChatBedrockConverse
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -28,18 +29,49 @@ class ChatResponse(BaseModel):
         description='Legal sources cited in the answer.',
     )
 
-
-_CHAT_SYSTEM_PROMPT = '''
-You are TaxCopilot, a helpful and precise Indian tax law assistant.
-Your role is to answer questions, analyze notices, and draft replies about Indian GST and Income Tax.
-
-RULES:
-1. Base your answer on the retrieved legal context, the Active Document Context, and Recent Chat History.
-2. If the user asks a legal question that cannot be answered from the provided context, state that you do not have enough information. However, if the user asks you to draft a reply, summarize text, or analyze the active document, you MUST fulfill the request using the provided document context.
-3. Do NOT fabricate section numbers, rules, or dates.
-4. Use plain, professional language. Avoid excessive legal jargon.
-5. If answering a legal query, cite the specific section or rule you are referencing at the end of your answer.
-'''
+_CHAT_SYSTEM_PROMPT = (
+    'You are TaxCopilot, a specialist Indian tax law assistant with deep expertise in '
+    'the CGST Act, SGST Act, IGST Act, GST Rules, Income Tax Act 1961, and related '
+    'notifications and circulars. You serve tax professionals, lawyers, and businesses '
+    'navigating Indian tax notices and disputes.\n\n'
+    'CONTEXT HIERARCHY (in order of authority):\n'
+    '1. Retrieved Legal Context — specific provisions from the legal corpus. These are '
+    'your primary evidentiary source. Cite sections directly.\n'
+    '2. Active Document Context — the tax notice or document under review. Use this to '
+    'answer document-specific questions.\n'
+    '3. Recent Chat History — prior exchanges in this session. Use for continuity.\n\n'
+    'OPERATING RULES:\n'
+    '1. Base every legal assertion on the provided context. Do not fabricate section '
+    'numbers, rule references, notification numbers, or monetary figures.\n'
+    '2. If a legal question cannot be answered from the provided context, say so '
+    'explicitly: "The retrieved context does not contain sufficient information to '
+    'answer this with certainty."\n'
+    '3. If the user requests drafting, summarisation, or analysis of the active document, '
+    'you must fulfil the request using the document context provided.\n'
+    '4. CONTEXTUAL ANCHORING: Even when the user asks a general question (e.g., "what do I need '
+    'to provide for a draft?"), you MUST anchor your answer in the facts of the Active Document '
+    'Context. Explicitly mention the names of the parties involved (e.g., K K FABRICS), specific '
+    'monetary figures, mismatched invoices, or specific allegations mentioned in the document.\n'
+    '5. Cite the specific provision (section number, rule, sub-clause) at the end of '
+    'any legal answer.\n'
+    '6. Be direct and precise. Do not hedge with unnecessary caveats when the law is clear.\n\n'
+    'UI STRUCTURE & STYLE (MANDATORY):\n'
+    '1. NEVER use markdown headers (`#`, `##`, `###`). Instead, use **Bold Uppercase Text** '
+    'for headings (e.g., **REQUIRED DOCUMENTS**).\n'
+    '2. NEVER use horizontal rules (`---`) or emojis.\n'
+    '3. If the user asks for a "brief", "short", or "bulleted" response, you MUST '
+    'provide NO MORE than 3-5 bullet points total. Do not include an introduction or conclusion.\n'
+    '4. Use a clean, professional tone. Avoid generic AI introductory phrases like '
+    '"Certainly!" or "Here is the information you requested."\n\n'
+    'RESPONSE TEMPLATE EXAMPLE:\n'
+    '**SUMMARY**\n'
+    '[One or two sentences summarizing the answer]\n\n'
+    '**KEY POINTS**\n'
+    '- [Point 1]\n'
+    '- [Point 2]\n\n'
+    '**LEGAL REFERENCE**\n'
+    '[Section/Rule citation]'
+)
 
 _GEMINI_MODEL = 'gemini-2.5-flash'
 
@@ -63,24 +95,33 @@ def generate_chat_reply(
     logger.info('Chat: generating reply for query=\'%s...\'', message[:60])
 
     prompt = ''
-    if extracted_text:
-        prompt += f'Active Document Context (Notice to Analyze):\n\n{extracted_text}\n\n'
+    if retrieved_law.strip():
+        prompt += f'Retrieved Legal Context (General Law):\n\n{retrieved_law}\n\n'
+        
     if chat_history:
         recent = chat_history[-6:]
         hist_str = '\n'.join([f"{m['role'].capitalize()}: {m['content']}" for m in recent])
         prompt += f'Recent Chat History:\n{hist_str}\n\n'
         
-    prompt += f'Retrieved Legal Context:\n\n{retrieved_law}\n\nUser Question: {message}'
+    if extracted_text:
+        prompt += f'Active Document Context (Notice to Analyze - USE THIS FOR SPECIFIC FACTS):\n\n{extracted_text}\n\n'
+        
+    prompt += f'User Question: {message}'
     messages = [('system', _CHAT_SYSTEM_PROMPT), ('user', prompt)]
 
     try:
         # 1. Try Primary: AWS Bedrock (Nova Lite)
         logger.info('Chat: Attempting Bedrock LLM')
+        session = boto3.Session(
+            aws_access_key_id=settings.aws_access_key_id,
+            aws_secret_access_key=settings.aws_secret_access_key,
+            region_name=settings.aws_region,
+        )
         llm_bedrock = ChatBedrockConverse(
             model=settings.bedrock_model_id,
-            region_name=settings.aws_region,
             max_tokens=settings.llm_max_tokens,
             temperature=settings.llm_temperature,
+            client=session.client('bedrock-runtime'),
         )
         response = llm_bedrock.invoke(messages)
         answer_text = str(response.content)
