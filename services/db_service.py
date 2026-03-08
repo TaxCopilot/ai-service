@@ -43,7 +43,7 @@ ALTER TABLE document_cache
 """
 
 _CREATE_CHAT_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS chat_messages (
+CREATE TABLE IF NOT EXISTS ai_chat_history (
     id          BIGSERIAL   PRIMARY KEY,
     document_id TEXT        NOT NULL,
     role        TEXT        NOT NULL CHECK (role IN ('user', 'assistant')),
@@ -51,8 +51,17 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     content     TEXT        NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_chat_messages_doc
-    ON chat_messages (document_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_chat_history_doc
+    ON ai_chat_history (document_id, created_at);
+"""
+
+# Migrate existing chat_messages tables that were created before document_id / mode
+# columns were added to the schema.
+_MIGRATE_CHAT_TABLE_SQL = """
+ALTER TABLE ai_chat_history
+    ADD COLUMN IF NOT EXISTS document_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE ai_chat_history
+    ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'chat';
 """
 
 
@@ -90,11 +99,12 @@ def ensure_table() -> None:
             conn.execute(_CREATE_CACHE_TABLE_SQL)
             conn.execute(_ADD_ANALYSIS_COLUMN_SQL)
             conn.execute(_CREATE_CHAT_TABLE_SQL)
+            conn.execute(_MIGRATE_CHAT_TABLE_SQL)
             conn.commit()
     except psycopg.Error as exc:
         logger.exception('Failed to ensure DB tables: %s', exc)
         raise RuntimeError(f'DB setup failed: {exc}') from exc
-    logger.info('DB tables ensured (document_cache, chat_messages).')
+    logger.info('DB tables ensured (document_cache, ai_chat_history).')
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +224,7 @@ def get_analysis_cache(document_id: str) -> dict | None:
     return result
 
 
-def save_analysis_cache(document_id: str, analysis_dict: dict) -> None:
+def save_analysis_cache(document_id: str, analysis_dict: dict, extracted_text: str = '') -> None:
     """
     Persist an analysis result in the document_cache row.
     Assumes the document_cache row already exists (created by save_cached_doc).
@@ -224,15 +234,16 @@ def save_analysis_cache(document_id: str, analysis_dict: dict) -> None:
     sql = """
         INSERT INTO document_cache
             (document_id, extracted_text, draft_reply, citations, analysis_result, updated_at)
-        VALUES (%s, '', '', '[]'::jsonb, %s::jsonb, %s)
+        VALUES (%s, %s, '', '[]'::jsonb, %s::jsonb, %s)
         ON CONFLICT (document_id) DO UPDATE SET
+            extracted_text  = CASE WHEN EXCLUDED.extracted_text != '' THEN EXCLUDED.extracted_text ELSE document_cache.extracted_text END,
             analysis_result = EXCLUDED.analysis_result,
             updated_at      = EXCLUDED.updated_at
     """
     now = datetime.now(timezone.utc)
     try:
         with psycopg.connect(_get_conn_str()) as conn:
-            conn.execute(sql, (document_id, json.dumps(analysis_dict), now))
+            conn.execute(sql, (document_id, extracted_text, json.dumps(analysis_dict), now))
             conn.commit()
     except psycopg.Error as exc:
         logger.exception('DB error saving analysis cache for %s: %s', document_id, exc)
@@ -240,32 +251,55 @@ def save_analysis_cache(document_id: str, analysis_dict: dict) -> None:
             f'Analysis cache save failed for {document_id}: {exc}'
         ) from exc
 
+
+def update_extracted_text(document_id: str, extracted_text: str) -> None:
+    """
+    Just updates or inserts the extracted_text for a document.
+    """
+    sql = """
+        INSERT INTO document_cache
+            (document_id, extracted_text, draft_reply, citations, analysis_result, updated_at)
+        VALUES (%s, %s, '', '[]'::jsonb, '{}'::jsonb, %s)
+        ON CONFLICT (document_id) DO UPDATE SET
+            extracted_text = EXCLUDED.extracted_text,
+            updated_at     = EXCLUDED.updated_at
+    """
+    now = datetime.now(timezone.utc)
+    try:
+        with psycopg.connect(_get_conn_str()) as conn:
+            conn.execute(sql, (document_id, extracted_text, now))
+            conn.commit()
+    except psycopg.Error as exc:
+        logger.exception('DB error updating extracted_text for %s: %s', document_id, exc)
+        # non-fatal
+
+
     logger.info('Analysis cache SAVED for document_id=%s', document_id)
 
 
 # ---------------------------------------------------------------------------
-# chat_messages helpers
+# ai_chat_history helpers
 # ---------------------------------------------------------------------------
 
 
-def append_message(document_id: str, role: str, mode: str, content: str) -> None:
-    """Append a single message to the chat history for a document."""
+def append_message(session_id: str, role: str, mode: str, content: str) -> None:
+    """Append a single message to the AI chat history for a session/case."""
     sql = """
-        INSERT INTO chat_messages (document_id, role, mode, content)
+        INSERT INTO ai_chat_history (document_id, role, mode, content)
         VALUES (%s, %s, %s, %s)
     """
     try:
         with psycopg.connect(_get_conn_str()) as conn:
-            conn.execute(sql, (document_id, role, mode, content))
+            conn.execute(sql, (session_id, role, mode, content))
             conn.commit()
     except psycopg.Error as exc:
-        logger.exception('DB error appending message for %s: %s', document_id, exc)
-        raise RuntimeError(f'Message append failed for {document_id}: {exc}') from exc
+        logger.exception('DB error appending message for %s: %s', session_id, exc)
+        raise RuntimeError(f'Message append failed for {session_id}: {exc}') from exc
 
 
-def get_chat_history(document_id: str) -> list[ChatMessageRow]:
+def get_chat_history(session_id: str) -> list[ChatMessageRow]:
     """
-    Fetch the bounded chat history for a document, ordered chronologically.
+    Fetch the bounded chat history for a session, ordered chronologically.
 
     Fetches the most recent messages first, accumulates up to _MAX_HISTORY_CHARS,
     then reverses to chronological order. This ensures the injected context never
@@ -273,16 +307,16 @@ def get_chat_history(document_id: str) -> list[ChatMessageRow]:
     """
     sql = """
         SELECT role, mode, content
-        FROM chat_messages
+        FROM ai_chat_history
         WHERE document_id = %s
         ORDER BY created_at DESC
     """
     try:
         with psycopg.connect(_get_conn_str()) as conn:
-            rows = conn.execute(sql, (document_id,)).fetchall()
+            rows = conn.execute(sql, (session_id,)).fetchall()
     except psycopg.Error as exc:
-        logger.exception('DB error fetching history for %s: %s', document_id, exc)
-        raise RuntimeError(f'History fetch failed for {document_id}: {exc}') from exc
+        logger.exception('DB error fetching history for %s: %s', session_id, exc)
+        raise RuntimeError(f'History fetch failed for {session_id}: {exc}') from exc
 
     accumulated = 0
     bounded: list[ChatMessageRow] = []
@@ -295,8 +329,8 @@ def get_chat_history(document_id: str) -> list[ChatMessageRow]:
     # Reverse to restore chronological order
     bounded.reverse()
     logger.info(
-        'History fetched for document_id=%s: %d messages (%d chars)',
-        document_id,
+        'History fetched for session_id=%s: %d messages (%d chars)',
+        session_id,
         len(bounded),
         accumulated,
     )
