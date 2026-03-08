@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # Gemini — LLM
     gemini_api_key: str = Field(default='...', alias='GEMINI_API_KEY')
-    llm_max_tokens: int = Field(default=2048)
+    llm_max_tokens: int = Field(default=8192)
     # Low temp keeps legal drafts factual and consistent
     llm_temperature: float = Field(default=0.2)
     min_notice_chars: int = Field(default=15_000)
