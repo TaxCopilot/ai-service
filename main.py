@@ -86,12 +86,15 @@ async def limit_body_size(request: Request, call_next):
             )
     return await call_next(request)
 
-# Permissive CORS for the hackathon — restrict allow_origins before production.
+# CORS Configuration
+allowed_origins = [o.strip() for o in settings.cors_origins.split(',')]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
+    allow_origins=allowed_origins,
     allow_methods=['POST', 'GET', 'OPTIONS'],
     allow_headers=['*'],
+    allow_credentials=True,
 )
 
 app.include_router(router)
